@@ -110,8 +110,26 @@ class DiffLog(Base):
     change_type = Column(String)  # "added", "removed", "modified"
     details = Column(Text)        # Human readable description of changes
 
+from sqlalchemy import text
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    
+    # Автоматическая миграция для добавления новых колонок в существующую БД SQLite
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(text("PRAGMA table_info(configs);"))
+            column_names = [row[1] for row in result.fetchall()]
+            
+            if "email_report_frequency" not in column_names:
+                conn.execute(text("ALTER TABLE configs ADD COLUMN email_report_frequency TEXT DEFAULT 'sync';"))
+                print("Migration: Added email_report_frequency column to configs table.")
+                
+            if "last_email_sent" not in column_names:
+                conn.execute(text("ALTER TABLE configs ADD COLUMN last_email_sent DATETIME;"))
+                print("Migration: Added last_email_sent column to configs table.")
+    except Exception as migration_error:
+        print(f"Migration error: {migration_error}")
     
     session = SessionLocal()
     try:
