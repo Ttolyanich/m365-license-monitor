@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  m365-monitor:
+    image: ghcr.io/ttolyanich/m365-license-monitor:latest
+    container_name: m365-monitor
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/backend
+    restart: unless-stopped
