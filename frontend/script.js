@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let selectedLicenseValue = "";
     let selectedGroupValue = "";
+    let selectedEmailFrequencyValue = "sync";
 
     // Toast element helper
     const toast = document.getElementById("toast");
@@ -665,7 +666,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("client_id").value = data.client_id || "";
                 document.getElementById("client_secret").value = data.client_secret || "";
                 document.getElementById("email_to").value = data.email_to || "";
-                document.getElementById("email_report_frequency").value = data.email_report_frequency || "sync";
+                
+                const freqVal = data.email_report_frequency || "sync";
+                selectedEmailFrequencyValue = freqVal;
+                const freqContainer = document.getElementById("select-email-frequency");
+                const activeOption = freqContainer.querySelector(`.option[data-value="${freqVal}"]`);
+                const triggerText = document.getElementById("select-email-frequency-text");
+                if (activeOption) {
+                    freqContainer.querySelectorAll(".option").forEach(o => o.classList.remove("active"));
+                    activeOption.classList.add("active");
+                    triggerText.textContent = activeOption.textContent;
+                }
                 
                 sendViaGraphCheckbox.checked = data.send_via_graph || false;
                 sendViaGraphCheckbox.dispatchEvent(new Event("change"));
@@ -700,7 +711,7 @@ document.addEventListener("DOMContentLoaded", () => {
             client_id: document.getElementById("client_id").value,
             client_secret: document.getElementById("client_secret").value,
             email_to: document.getElementById("email_to").value,
-            email_report_frequency: document.getElementById("email_report_frequency").value,
+            email_report_frequency: selectedEmailFrequencyValue,
             send_via_graph: sendViaGraphCheckbox.checked,
             send_from_graph_user: document.getElementById("send_from_graph_user").value,
             email_from: document.getElementById("email_from").value,
@@ -733,5 +744,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // -------------------------------------------------------------
     // Initial App Load
     // -------------------------------------------------------------
+    registerOptionClickListeners("select-email-frequency", (val, text) => {
+        selectedEmailFrequencyValue = val;
+    });
+
     checkAuth();
 });

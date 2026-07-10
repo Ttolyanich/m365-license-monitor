@@ -309,14 +309,20 @@
                                 <input type="email" id="email_to" name="email_to" placeholder="admin@domain.com">
                             </div>
                             <div class="form-group">
-                                <label for="email_report_frequency">Периодичность отправки отчетов по почте</label>
-                                <select id="email_report_frequency" name="email_report_frequency">
-                                    <option value="sync">При каждой синхронизации</option>
-                                    <option value="daily">Раз в сутки (раз в 24 часа)</option>
-                                    <option value="weekly">Раз в неделю (раз в 7 дней)</option>
-                                    <option value="monthly">Раз в месяц (раз в 30 дней)</option>
-                                    <option value="disabled">Отключить автоматические отчеты</option>
-                                </select>
+                                <label>Периодичность отправки отчетов по почте</label>
+                                <div class="custom-select" id="select-email-frequency" style="width: 100%;">
+                                    <div class="select-trigger">
+                                        <span id="select-email-frequency-text">При каждой синхронизации</span>
+                                        <i class="fa-solid fa-chevron-down"></i>
+                                    </div>
+                                    <div class="select-options" id="select-email-frequency-options">
+                                        <div class="option active" data-value="sync">При каждой синхронизации</div>
+                                        <div class="option" data-value="daily">Раз в сутки (раз в 24 часа)</div>
+                                        <div class="option" data-value="weekly">Раз в неделю (раз в 7 дней)</div>
+                                        <div class="option" data-value="monthly">Раз в месяц (раз в 30 дней)</div>
+                                        <div class="option" data-value="disabled">Отключить автоматические отчеты</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
