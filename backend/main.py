@@ -406,9 +406,31 @@ async def run_sync_logic(db_session: Session, config: Config):
             # Clean old records (30 days)
             cleanup_retention(db_session)
             
-            # Send email
-            if config.email_to and (config.smtp_server or config.send_via_graph):
+            # Send email based on frequency setting
+            should_send_email = False
+            freq = config.email_report_frequency or "sync"
+            
+            if freq == "sync":
+                should_send_email = True
+            elif freq == "disabled":
+                should_send_email = False
+            else:
+                now = datetime.utcnow()
+                if not config.last_email_sent:
+                    should_send_email = True
+                else:
+                    delta = now - config.last_email_sent
+                    if freq == "daily" and delta.total_seconds() >= 24 * 3600:
+                        should_send_email = True
+                    elif freq == "weekly" and delta.total_seconds() >= 7 * 24 * 3600:
+                        should_send_email = True
+                    elif freq == "monthly" and delta.total_seconds() >= 30 * 24 * 3600:
+                        should_send_email = True
+            
+            if should_send_email and config.email_to and (config.smtp_server or config.send_via_graph):
                 await send_sync_report_email(config, sync_run, current_snapshots, diffs)
+                config.last_email_sent = datetime.utcnow()
+                db_session.commit()
                 
         except Exception as e:
             import traceback
@@ -606,6 +628,7 @@ def update_config(config_data: dict, db: Session = Depends(get_db), current_user
     
     config.auto_sync_enabled = bool(config_data.get("auto_sync_enabled", False))
     config.sync_interval_hours = int(config_data.get("sync_interval_hours", 24))
+    config.email_report_frequency = config_data.get("email_report_frequency", "sync")
     
     db.commit()
     return {"status": "success", "message": "Настройки сохранены."}

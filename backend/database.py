@@ -72,6 +72,10 @@ class Config(Base):
     auto_sync_enabled = Column(Boolean, default=False)
     sync_interval_hours = Column(Integer, default=24)
     last_auto_sync = Column(DateTime, nullable=True)
+    
+    # Email reporting scheduler settings
+    email_report_frequency = Column(String, default="sync") # "sync", "daily", "weekly", "monthly", "disabled"
+    last_email_sent = Column(DateTime, nullable=True)
 
 class SyncHistory(Base):
     __tablename__ = "sync_history"

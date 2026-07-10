@@ -665,6 +665,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("client_id").value = data.client_id || "";
                 document.getElementById("client_secret").value = data.client_secret || "";
                 document.getElementById("email_to").value = data.email_to || "";
+                document.getElementById("email_report_frequency").value = data.email_report_frequency || "sync";
                 
                 sendViaGraphCheckbox.checked = data.send_via_graph || false;
                 sendViaGraphCheckbox.dispatchEvent(new Event("change"));
@@ -699,6 +700,7 @@ document.addEventListener("DOMContentLoaded", () => {
             client_id: document.getElementById("client_id").value,
             client_secret: document.getElementById("client_secret").value,
             email_to: document.getElementById("email_to").value,
+            email_report_frequency: document.getElementById("email_report_frequency").value,
             send_via_graph: sendViaGraphCheckbox.checked,
             send_from_graph_user: document.getElementById("send_from_graph_user").value,
             email_from: document.getElementById("email_from").value,

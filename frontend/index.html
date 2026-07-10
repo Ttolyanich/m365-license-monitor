@@ -308,6 +308,16 @@
                                 <label for="email_to">Кому отправлять отчеты (Email)</label>
                                 <input type="email" id="email_to" name="email_to" placeholder="admin@domain.com">
                             </div>
+                            <div class="form-group">
+                                <label for="email_report_frequency">Периодичность отправки отчетов по почте</label>
+                                <select id="email_report_frequency" name="email_report_frequency">
+                                    <option value="sync">При каждой синхронизации</option>
+                                    <option value="daily">Раз в сутки (раз в 24 часа)</option>
+                                    <option value="weekly">Раз в неделю (раз в 7 дней)</option>
+                                    <option value="monthly">Раз в месяц (раз в 30 дней)</option>
+                                    <option value="disabled">Отключить автоматические отчеты</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="toggle-container mb-20">
