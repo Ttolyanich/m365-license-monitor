@@ -488,7 +488,8 @@ def microsoft_login(request: Request, db: Session = Depends(get_db)):
     if not config or not config.tenant_id or not config.client_id:
         raise HTTPException(status_code=400, detail="M365 integration is not configured in settings.")
         
-    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/api/auth/callback"
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    redirect_uri = f"{proto}://{request.url.netloc}/api/auth/callback"
     state = secrets.token_hex(16)
     
     microsoft_url = (
@@ -508,7 +509,8 @@ async def microsoft_callback(request: Request, response: Response, code: str, st
     if not config or not config.tenant_id or not config.client_id or not config.client_secret:
         raise HTTPException(status_code=400, detail="M365 integration is not configured in settings.")
         
-    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/api/auth/callback"
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    redirect_uri = f"{proto}://{request.url.netloc}/api/auth/callback"
     
     # Exchange code for token
     token_url = f"https://login.microsoftonline.com/{config.tenant_id}/oauth2/v2.0/token"
