@@ -464,6 +464,24 @@ def get_me(current_user: User = Depends(get_current_user)):
         "auth_provider": current_user.auth_provider
     }
 
+@app.post("/api/auth/change-password")
+def change_password(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    old_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
+    
+    if current_user.auth_provider != "local":
+        raise HTTPException(status_code=400, detail="Смена пароля поддерживается только для локальных учетных записей.")
+        
+    if not verify_password(old_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Неверный текущий пароль.")
+        
+    if len(new_password) < 4:
+        raise HTTPException(status_code=400, detail="Новый пароль должен содержать минимум 4 символа.")
+        
+    current_user.password_hash = hash_password(new_password)
+    db.commit()
+    return {"status": "success", "message": "Пароль успешно изменен."}
+
 @app.get("/api/auth/microsoft")
 def microsoft_login(request: Request, db: Session = Depends(get_db)):
     config = db.query(Config).first()

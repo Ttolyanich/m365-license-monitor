@@ -117,6 +117,41 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
+    window.handleChangePassword = async function() {
+        const currentPasswordInput = document.getElementById("current_password");
+        const newPasswordInput = document.getElementById("new_password");
+        const confirmPasswordInput = document.getElementById("confirm_password");
+        
+        const oldPwd = currentPasswordInput.value;
+        const newPwd = newPasswordInput.value;
+        const confPwd = confirmPasswordInput.value;
+        
+        if (newPwd !== confPwd) {
+            showToast("Новые пароли не совпадают!", "error");
+            return;
+        }
+        
+        try {
+            const res = await fetch("/api/auth/change-password", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ current_password: oldPwd, new_password: newPwd })
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                showToast("Пароль успешно изменен!", "success");
+                currentPasswordInput.value = "";
+                newPasswordInput.value = "";
+                confirmPasswordInput.value = "";
+            } else {
+                showToast(data.detail || "Не удалось изменить пароль.", "error");
+            }
+        } catch (error) {
+            showToast("Ошибка при смене пароля: " + error.message, "error");
+        }
+    };
+
     // -------------------------------------------------------------
     // Tab Navigation Logic
     // -------------------------------------------------------------
