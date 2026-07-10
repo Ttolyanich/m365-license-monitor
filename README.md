@@ -108,11 +108,13 @@
 
 ## Использование PowerShell скрипта отдельно
 
-Скрипт `Export-M365UsersInfo.ps1` расположен в корне проекта. Для автоматического запуска по расписанию настройте его в планировщике задач Windows.
+Для автоматического запуска по расписанию настройте его в планировщике задач Windows.
+
+По умолчанию в Windows может быть запрещен запуск сторонних скриптов. Чтобы обойти это ограничение, запускайте скрипт с флагом `-ExecutionPolicy Bypass`.
 
 **Пример запуска с отправкой через SMTP**:
 ```powershell
-.\Export-M365UsersInfo.ps1 `
+powershell -ExecutionPolicy Bypass -File .\Export-M365UsersInfo.ps1 `
   -TenantId "Tenant-ID-из-Entra" `
   -ClientId "Client-ID-приложения" `
   -ClientSecret "Секрет-приложения" `
@@ -127,7 +129,7 @@
 
 **Пример запуска с отправкой через MS Graph API** (без использования SMTP, требуется разрешение `Mail.Send` для приложения):
 ```powershell
-.\Export-M365UsersInfo.ps1 `
+powershell -ExecutionPolicy Bypass -File .\Export-M365UsersInfo.ps1 `
   -TenantId "Tenant-ID-из-Entra" `
   -ClientId "Client-ID-приложения" `
   -ClientSecret "Секрет-приложения" `
