@@ -104,9 +104,9 @@ mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/m365-monitor.key \
   -out /etc/nginx/ssl/m365-monitor.crt \
-  -subj "/C=RU/ST=KZ/L=Almaty/O=Company/OU=IT/CN=192.168.87.30"
+  -subj "/C=RU/ST=KZ/L=Almaty/O=Company/OU=IT/CN=m365-monitor.local"
 ```
-*(Замените `192.168.87.30` в параметре CN на IP-адрес или доменное имя вашего сервера).*
+*(Замените `<IP-вашего-сервера-или-домен>` в параметре CN на IP-адрес или доменное имя вашего сервера).*
 
 ### Шаг 2. Настройка виртуального хоста Nginx
 Создайте конфигурационный файл `/etc/nginx/conf.d/m365-monitor.conf` (или `/etc/nginx/sites-available/m365-monitor`):
@@ -114,7 +114,7 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
 ```nginx
 server {
     listen 80;
-    server_name 192.168.87.30; # или ваш локальный домен
+    server_name _; # слушать любой входящий хост
 
     # Автоматический редирект с HTTP на HTTPS
     return 301 https://$host$request_uri;
@@ -122,7 +122,7 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name 192.168.87.30; # или ваш локальный домен
+    server_name _; # слушать любой входящий хост
 
     ssl_certificate /etc/nginx/ssl/m365-monitor.crt;
     ssl_certificate_key /etc/nginx/ssl/m365-monitor.key;
