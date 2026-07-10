@@ -1,0 +1,599 @@
+import os
+import io
+import asyncio
+from datetime import datetime
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
+import httpx
+import pandas as pd
+
+from database import init_db, get_db, Config, SyncHistory, UserSnapshot, DiffLog
+
+# Initialize database
+init_db()
+
+app = FastAPI(title="M365 License and User Monitor API")
+
+# Enable CORS for development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Active sync lock to prevent concurrent sync runs
+sync_lock = asyncio.Lock()
+
+# -------------------------------------------------------------
+# Microsoft Graph Client Helper
+# -------------------------------------------------------------
+class GraphClient:
+    def __init__(self, tenant_id: str, client_id: str, client_secret: str):
+        self.tenant_id = tenant_id
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.access_token = None
+
+    async def authenticate(self):
+        url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "scope": "https://graph.microsoft.com/.default",
+            "grant_type": "client_credentials"
+        }
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, data=data, timeout=10.0)
+            if r.status_code != 200:
+                raise Exception(f"OAuth failed: {r.text}")
+            self.access_token = r.json()["access_token"]
+
+    async def get_headers(self):
+        if not self.access_token:
+            await self.authenticate()
+        return {"Authorization": f"Bearer {self.access_token}"}
+
+    async def get_all_pages(self, start_url: str):
+        headers = await self.get_headers()
+        results = []
+        url = start_url
+        async with httpx.AsyncClient() as client:
+            while url:
+                r = await client.get(url, headers=headers, timeout=30.0)
+                if r.status_code != 200:
+                    raise Exception(f"Graph API error: {r.text}")
+                data = r.json()
+                results.extend(data.get("value", []))
+                url = data.get("@odata.nextLink")
+        return results
+
+    async def send_graph_email(self, send_from: str, to_email: str, subject: str, body: str, attachment_path: Optional[str] = None):
+        url = f"https://graph.microsoft.com/v1.0/users/{send_from}/sendMail"
+        headers = await self.get_headers()
+        
+        message = {
+            "subject": subject,
+            "body": {
+                "contentType": "Text",
+                "content": body
+            },
+            "toRecipients": [
+                {
+                    "emailAddress": {
+                        "address": to_email
+                    }
+                }
+            ]
+        }
+        
+        if attachment_path:
+            filename = os.path.basename(attachment_path)
+            with open(attachment_path, "rb") as f:
+                content_bytes = f.read()
+            import base64
+            content_base64 = base64.b64encode(content_bytes).decode("utf-8")
+            message["attachments"] = [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": filename,
+                    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "contentBytes": content_base64
+                }
+            ]
+            
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, json={"message": message, "saveToSentItems": "true"}, headers=headers, timeout=15.0)
+            if r.status_code not in (200, 202):
+                raise Exception(f"Send mail via Graph failed: {r.text}")
+
+# -------------------------------------------------------------
+# SMTP Email Helper
+# -------------------------------------------------------------
+def send_smtp_email(config: Config, subject: str, body: str, attachment_path: Optional[str] = None):
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    msg = MIMEMultipart()
+    msg['From'] = config.email_from
+    msg['To'] = config.email_to
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+    
+    if attachment_path:
+        filename = os.path.basename(attachment_path)
+        with open(attachment_path, "rb") as attachment:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f"attachment; filename= {filename}")
+            msg.attach(part)
+            
+    server = smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=15)
+    server.starttls()
+    if config.use_smtp_auth:
+        server.login(config.smtp_user, config.smtp_password)
+    server.sendmail(config.email_from, config.email_to, msg.as_string())
+    server.quit()
+
+# -------------------------------------------------------------
+# Report Generator
+# -------------------------------------------------------------
+def generate_excel_report(users):
+    data = []
+    for u in users:
+        data.append({
+            "User Principal Name": u.user_principal_name,
+            "Display Name": u.display_name,
+            "Email": u.mail or "",
+            "Account Enabled": "Да" if u.account_enabled else "Нет",
+            "Licenses": u.licenses,
+            "Groups": u.groups
+        })
+    df = pd.DataFrame(data)
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name="M365 Users", index=False)
+        
+        # Autofit columns
+        worksheet = writer.sheets["M365 Users"]
+        for col in worksheet.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = col[0].column_letter
+            worksheet.column_dimensions[col_letter].width = max(max_len + 3, 12)
+            
+    output.seek(0)
+    return output
+
+# -------------------------------------------------------------
+# Sync logic
+# -------------------------------------------------------------
+def cleanup_retention(db: Session):
+    from datetime import timedelta
+    limit_date = datetime.utcnow() - timedelta(days=30)
+    old_syncs = db.query(SyncHistory).filter(SyncHistory.timestamp < limit_date).all()
+    for s in old_syncs:
+        db.delete(s)
+    db.commit()
+
+async def send_sync_report_email(config: Config, sync_run: SyncHistory, current_snapshots, diffs):
+    diff_text = ""
+    if diffs:
+        diff_text = "Изменения за эту синхронизацию:\n"
+        for d in diffs:
+            icon = "🟢" if d.change_type == "added" else "🔴" if d.change_type == "removed" else "🟡"
+            diff_text += f"{icon} [{d.change_type.upper()}] {d.display_name} ({d.user_principal_name}): {d.details}\n"
+    else:
+        diff_text = "Изменений не обнаружено.\n"
+        
+    subject = f"Отчет M365: Синхронизация {sync_run.timestamp.strftime('%d.%m.%Y %H:%M')}"
+    body = f"""Синхронизация завершена со статусом: {sync_run.status.upper()}
+Всего пользователей в тенанте: {sync_run.users_count}
+
+{diff_text}
+
+Полный отчет находится во вложении (Excel файл).
+"""
+
+    excel_buf = generate_excel_report(current_snapshots)
+    temp_path = f"M365_Report_{sync_run.timestamp.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    with open(temp_path, "wb") as f:
+        f.write(excel_buf.read())
+        
+    try:
+        if config.send_via_graph:
+            client = GraphClient(config.tenant_id, config.client_id, config.client_secret)
+            await client.send_graph_email(
+                send_from=config.send_from_graph_user,
+                to_email=config.email_to,
+                subject=subject,
+                body=body,
+                attachment_path=temp_path
+            )
+        else:
+            send_smtp_email(config, subject, body, attachment_path=temp_path)
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+async def run_sync_logic(db_session: Session, config: Config):
+    async with sync_lock:
+        sync_run = SyncHistory(timestamp=datetime.utcnow(), status="running", message="Синхронизация запущена...")
+        db_session.add(sync_run)
+        db_session.commit()
+        db_session.refresh(sync_run)
+        
+        try:
+            # 1. Connect and Authenticate
+            client = GraphClient(config.tenant_id, config.client_id, config.client_secret)
+            await client.authenticate()
+            
+            # 2. Get SKUs
+            skus_data = await client.get_all_pages("https://graph.microsoft.com/v1.0/subscribedSkus")
+            sku_map = {s["skuId"]: s["skuPartNumber"] for s in skus_data if "skuId" in s}
+            
+            # 3. Get Groups and member lists
+            groups_data = await client.get_all_pages("https://graph.microsoft.com/v1.0/groups?$select=id,displayName")
+            user_groups_map = {}
+            
+            # Fetch members for each group
+            for g in groups_data:
+                group_id = g["id"]
+                group_name = g["displayName"]
+                try:
+                    members = await client.get_all_pages(f"https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=id")
+                    for member in members:
+                        m_id = member.get("id")
+                        if m_id:
+                            if m_id not in user_groups_map:
+                                user_groups_map[m_id] = []
+                            user_groups_map[m_id].append(group_name)
+                except Exception:
+                    pass # Ignore group reading failures (e.g. system groups)
+            
+            # 4. Get Users
+            users_data = await client.get_all_pages("https://graph.microsoft.com/v1.0/users?$select=id,userPrincipalName,displayName,mail,accountEnabled,assignedLicenses")
+            
+            # Find previous successful sync run
+            prev_sync = db_session.query(SyncHistory).filter(SyncHistory.status == "success").order_by(SyncHistory.timestamp.desc()).first()
+            prev_snapshots = {}
+            if prev_sync:
+                prev_snapshots = {s.user_id: s for s in db_session.query(UserSnapshot).filter(UserSnapshot.sync_id == prev_sync.id).all()}
+            
+            current_snapshots = []
+            diffs = []
+            
+            for u in users_data:
+                user_id = u["id"]
+                upn = u["userPrincipalName"]
+                disp_name = u.get("displayName") or ""
+                mail = u.get("mail") or ""
+                enabled = u.get("accountEnabled", True)
+                
+                # Sku mapping
+                lics = []
+                for lic in u.get("assignedLicenses", []):
+                    sku_id = lic.get("skuId")
+                    if sku_id:
+                        lics.append(sku_map.get(sku_id, sku_id))
+                lic_str = ", ".join(lics)
+                
+                # Groups mapping
+                grps = user_groups_map.get(user_id, [])
+                grp_str = ", ".join(grps)
+                
+                snap = UserSnapshot(
+                    sync_id=sync_run.id,
+                    user_id=user_id,
+                    user_principal_name=upn,
+                    display_name=disp_name,
+                    mail=mail,
+                    account_enabled=enabled,
+                    licenses=lic_str,
+                    groups=grp_str
+                )
+                current_snapshots.append(snap)
+                
+                # Compare
+                if prev_sync:
+                    if user_id not in prev_snapshots:
+                        diffs.append(DiffLog(
+                            sync_id=sync_run.id,
+                            user_principal_name=upn,
+                            display_name=disp_name,
+                            change_type="added",
+                            details=f"Пользователь добавлен. Лицензии: [{lic_str}]. Группы: [{grp_str}]"
+                        ))
+                    else:
+                        prev_snap = prev_snapshots[user_id]
+                        changes = []
+                        
+                        # Compare licenses
+                        p_lics = set(x.strip() for x in prev_snap.licenses.split(",") if x.strip())
+                        c_lics = set(x.strip() for x in lic_str.split(",") if x.strip())
+                        added_lic = c_lics - p_lics
+                        rem_lic = p_lics - c_lics
+                        if added_lic:
+                            changes.append(f"выдана лицензия: {', '.join(added_lic)}")
+                        if rem_lic:
+                            changes.append(f"отозвана лицензия: {', '.join(rem_lic)}")
+                            
+                        # Compare groups
+                        p_grps = set(x.strip() for x in prev_snap.groups.split(",") if x.strip())
+                        c_grps = set(x.strip() for x in grp_str.split(",") if x.strip())
+                        added_grp = c_grps - p_grps
+                        rem_grp = p_grps - c_grps
+                        if added_grp:
+                            changes.append(f"добавлен в группы: {', '.join(added_grp)}")
+                        if rem_grp:
+                            changes.append(f"удален из групп: {', '.join(rem_grp)}")
+                            
+                        # Other attributes
+                        if prev_snap.account_enabled != enabled:
+                            changes.append(f"статус учетной записи изменен на {'Активен' if enabled else 'Отключен'}")
+                        if prev_snap.display_name != disp_name:
+                            changes.append(f"имя изменено с '{prev_snap.display_name}' на '{disp_name}'")
+                            
+                        if changes:
+                            diffs.append(DiffLog(
+                                sync_id=sync_run.id,
+                                user_principal_name=upn,
+                                display_name=disp_name,
+                                change_type="modified",
+                                details="; ".join(changes)
+                            ))
+            
+            # Check for deleted users
+            if prev_sync:
+                curr_user_ids = {u["id"] for u in users_data}
+                for p_id, p_snap in prev_snapshots.items():
+                    if p_id not in curr_user_ids:
+                        diffs.append(DiffLog(
+                            sync_id=sync_run.id,
+                            user_principal_name=p_snap.user_principal_name,
+                            display_name=p_snap.display_name,
+                            change_type="removed",
+                            details=f"Пользователь удален. Ранее имел лицензии: [{p_snap.licenses}] и группы: [{p_snap.groups}]"
+                        ))
+            
+            # Save snapshots and logs
+            db_session.add_all(current_snapshots)
+            db_session.add_all(diffs)
+            
+            sync_run.status = "success"
+            sync_run.message = "Синхронизация завершена успешно."
+            sync_run.users_count = len(users_data)
+            db_session.commit()
+            
+            # Clean old records (30 days)
+            cleanup_retention(db_session)
+            
+            # Send email
+            if config.email_to and (config.smtp_server or config.send_via_graph):
+                await send_sync_report_email(config, sync_run, current_snapshots, diffs)
+                
+        except Exception as e:
+            import traceback
+            sync_run.status = "failed"
+            sync_run.message = f"Ошибка: {str(e)}\n{traceback.format_exc()}"
+            db_session.commit()
+
+# -------------------------------------------------------------
+# API Endpoints
+# -------------------------------------------------------------
+@app.get("/api/config")
+def get_config(db: Session = Depends(get_db)):
+    config = db.query(Config).first()
+    return config
+
+@app.post("/api/config")
+def update_config(config_data: dict, db: Session = Depends(get_db)):
+    config = db.query(Config).first()
+    if not config:
+        config = Config()
+        db.add(config)
+    
+    config.tenant_id = config_data.get("tenant_id", "")
+    config.client_id = config_data.get("client_id", "")
+    config.client_secret = config_data.get("client_secret", "")
+    config.email_to = config_data.get("email_to", "")
+    config.email_from = config_data.get("email_from", "")
+    config.smtp_server = config_data.get("smtp_server", "")
+    config.smtp_port = int(config_data.get("smtp_port", 587))
+    config.use_smtp_auth = bool(config_data.get("use_smtp_auth", False))
+    config.smtp_user = config_data.get("smtp_user", "")
+    config.smtp_password = config_data.get("smtp_password", "")
+    config.send_via_graph = bool(config_data.get("send_via_graph", False))
+    config.send_from_graph_user = config_data.get("send_from_graph_user", "")
+    
+    config.auto_sync_enabled = bool(config_data.get("auto_sync_enabled", False))
+    config.sync_interval_hours = int(config_data.get("sync_interval_hours", 24))
+    
+    db.commit()
+    return {"status": "success", "message": "Настройки сохранены."}
+
+@app.get("/api/dashboard")
+def get_dashboard(db: Session = Depends(get_db)):
+    last_sync = db.query(SyncHistory).order_by(SyncHistory.timestamp.desc()).first()
+    
+    total_users = 0
+    active_licenses = {}
+    last_sync_status = "Никогда"
+    last_sync_time = None
+    
+    if last_sync and last_sync.status == "success":
+        total_users = last_sync.users_count
+        last_sync_status = "Успешно"
+        last_sync_time = last_sync.timestamp
+        
+        # Count licenses
+        snapshots = db.query(UserSnapshot).filter(UserSnapshot.sync_id == last_sync.id).all()
+        for s in snapshots:
+            if s.licenses:
+                for lic in s.licenses.split(","):
+                    lic_name = lic.strip()
+                    if lic_name:
+                        active_licenses[lic_name] = active_licenses.get(lic_name, 0) + 1
+    elif last_sync:
+        last_sync_status = "Ошибка"
+        last_sync_time = last_sync.timestamp
+        
+    recent_diffs = db.query(DiffLog).order_by(DiffLog.timestamp.desc()).limit(50).all()
+    
+    return {
+        "total_users": total_users,
+        "active_licenses": active_licenses,
+        "last_sync_status": last_sync_status,
+        "last_sync_time": last_sync_time,
+        "recent_diffs": [
+            {
+                "id": d.id,
+                "timestamp": d.timestamp,
+                "user_principal_name": d.user_principal_name,
+                "display_name": d.display_name,
+                "change_type": d.change_type,
+                "details": d.details
+            }
+            for d in recent_diffs
+        ]
+    }
+
+@app.get("/api/users")
+def get_users(
+    page: int = 1,
+    limit: int = 50,
+    search: Optional[str] = None,
+    group: Optional[str] = None,
+    license: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    last_success_sync = db.query(SyncHistory).filter(SyncHistory.status == "success").order_by(SyncHistory.timestamp.desc()).first()
+    if not last_success_sync:
+        return {"users": [], "total": 0, "page": page, "limit": limit}
+        
+    query = db.query(UserSnapshot).filter(UserSnapshot.sync_id == last_success_sync.id)
+    
+    if search:
+        query = query.filter(
+            (UserSnapshot.user_principal_name.like(f"%{search}%")) |
+            (UserSnapshot.display_name.like(f"%{search}%")) |
+            (UserSnapshot.mail.like(f"%{search}%"))
+        )
+    if group:
+        query = query.filter(UserSnapshot.groups.like(f"%{group}%"))
+    if license:
+        query = query.filter(UserSnapshot.licenses.like(f"%{license}%"))
+        
+    total = query.count()
+    users = query.offset((page - 1) * limit).limit(limit).all()
+    
+    return {
+        "users": [
+            {
+                "user_principal_name": u.user_principal_name,
+                "display_name": u.display_name,
+                "mail": u.mail,
+                "account_enabled": u.account_enabled,
+                "licenses": u.licenses,
+                "groups": u.groups
+            }
+            for u in users
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit
+    }
+
+@app.post("/api/sync")
+def trigger_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    if sync_lock.locked():
+        raise HTTPException(status_code=400, detail="Синхронизация уже выполняется.")
+        
+    config = db.query(Config).first()
+    if not config or not config.tenant_id or not config.client_id or not config.client_secret:
+        raise HTTPException(status_code=400, detail="Пожалуйста, сначала заполните настройки подключения к M365.")
+        
+    background_tasks.add_task(run_sync_logic, db, config)
+    return {"status": "started", "message": "Синхронизация запущена в фоновом режиме."}
+
+@app.get("/api/syncs")
+def get_syncs(db: Session = Depends(get_db)):
+    syncs = db.query(SyncHistory).order_by(SyncHistory.timestamp.desc()).limit(20).all()
+    return [
+        {
+            "id": s.id,
+            "timestamp": s.timestamp,
+            "status": s.status,
+            "message": s.message,
+            "users_count": s.users_count
+        } for s in syncs
+    ]
+
+@app.get("/api/export")
+def export_excel(sync_id: Optional[int] = None, db: Session = Depends(get_db)):
+    if sync_id:
+        sync_run = db.query(SyncHistory).filter(SyncHistory.id == sync_id).first()
+    else:
+        sync_run = db.query(SyncHistory).filter(SyncHistory.status == "success").order_by(SyncHistory.timestamp.desc()).first()
+        
+    if not sync_run:
+        raise HTTPException(status_code=404, detail="Отчеты не найдены. Сначала запустите синхронизацию.")
+        
+    users = db.query(UserSnapshot).filter(UserSnapshot.sync_id == sync_run.id).all()
+    excel_buf = generate_excel_report(users)
+    
+    filename = f"M365_Export_{sync_run.timestamp.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return StreamingResponse(
+        excel_buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+# -------------------------------------------------------------
+# Background Scheduler Loop
+# -------------------------------------------------------------
+async def auto_sync_worker():
+    while True:
+        try:
+            # We create a new DB session for each iteration
+            db = next(get_db())
+            config = db.query(Config).first()
+            if config and config.auto_sync_enabled and config.tenant_id and config.client_id:
+                now = datetime.utcnow()
+                should_sync = False
+                if not config.last_auto_sync:
+                    should_sync = True
+                else:
+                    delta = now - config.last_auto_sync
+                    if delta.total_seconds() >= config.sync_interval_hours * 3600:
+                        should_sync = True
+                        
+                if should_sync:
+                    print("Auto-sync worker: starting sync...")
+                    await run_sync_logic(db, config)
+                    config.last_auto_sync = now
+                    db.commit()
+            db.close()
+        except Exception as e:
+            print(f"Auto-sync worker error: {e}")
+        await asyncio.sleep(300) # Check every 5 minutes
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(auto_sync_worker())
+
+# Serve static frontend files
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
