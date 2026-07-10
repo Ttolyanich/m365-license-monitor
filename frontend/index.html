@@ -1,469 +1,469 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M365 License and User Monitor</title>
-    <link rel="icon" type="image/png" href="/favicon.png">
-    <meta name="description" content="Панель мониторинга учетных записей, лицензий и членства в группах Microsoft 365 с отслеживанием изменений и экспортом в Excel.">
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
-    <!-- FontAwesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <!-- Login Page Overlay -->
-    <div id="login-overlay" class="login-overlay active">
-        <div class="login-card">
-            <div class="login-logo-container">
-                <i class="fa-solid fa-shield-halved login-logo"></i>
-                <h2>M365 Monitor</h2>
-                <p>Вход в систему управления лицензиями</p>
-            </div>
-            
-            <div class="error-banner" id="login-error" style="display: none;">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <span id="login-error-text">Неверный логин или пароль</span>
-            </div>
-
-            <form id="login-form" onsubmit="event.preventDefault(); handleLocalLogin();">
-                <div class="input-field">
-                    <i class="fa-solid fa-user"></i>
-                    <input type="text" id="login-username" placeholder="Имя пользователя" required autocomplete="username">
-                </div>
-                <div class="input-field">
-                    <i class="fa-solid fa-lock"></i>
-                    <input type="password" id="login-password" placeholder="Пароль" required autocomplete="current-password">
-                </div>
-                <button type="submit" class="btn btn-primary btn-block">
-                    <i class="fa-solid fa-right-to-bracket"></i> Войти
-                </button>
-            </form>
-            
-            <div class="login-divider">
-                <span>ИЛИ</span>
-            </div>
-            
-            <button id="microsoft-login-btn" class="btn btn-microsoft btn-block" onclick="handleMicrosoftLogin()">
-                <svg class="microsoft-logo" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21">
-                    <title>MS-SymbolLockup</title>
-                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                </svg>
-                <span>Войти через Microsoft 365</span>
-            </button>
-        </div>
-    </div>
-    <div class="background-glows">
-        <div class="glow glow-1"></div>
-        <div class="glow glow-2"></div>
-        <div class="glow glow-3"></div>
-    </div>
-
-    <div class="app-container">
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar">
-            <div class="brand">
-                <i class="fa-solid fa-shield-halved brand-logo"></i>
-                <div class="brand-info">
-                    <h2>M365 Monitor</h2>
-                    <span id="user-display-name">Cloud Management</span>
-                </div>
-            </div>
-            <nav class="nav-menu">
-                <a href="#" class="nav-item active" data-tab="dashboard" id="nav-dashboard">
-                    <i class="fa-solid fa-chart-pie"></i>
-                    <span>Панель</span>
-                </a>
-                <a href="#" class="nav-item" data-tab="users" id="nav-users">
-                    <i class="fa-solid fa-users"></i>
-                    <span>Пользователи</span>
-                </a>
-                <a href="#" class="nav-item" data-tab="sync" id="nav-sync">
-                    <i class="fa-solid fa-rotate"></i>
-                    <span>Синхронизация</span>
-                </a>
-                <a href="#" class="nav-item" data-tab="settings" id="nav-settings">
-                    <i class="fa-solid fa-sliders"></i>
-                    <span>Настройки</span>
-                </a>
-            </nav>
-            <div class="sidebar-footer">
-                <button id="quick-sync-btn" class="btn btn-secondary" style="margin-bottom: 10px; width: 100%;">
-                    <i class="fa-solid fa-sync"></i> Синхронизация
-                </button>
-                <button id="logout-btn" class="btn btn-danger btn-block" onclick="handleLogout()" style="width: 100%;">
-                    <i class="fa-solid fa-right-from-bracket"></i> Выйти
-                </button>
-            </div>
-        </aside>
-
-        <!-- Main Content Area -->
-        <main class="main-content">
-            <header class="top-header">
-                <div class="header-title">
-                    <h1 id="page-title">Сводная информация</h1>
-                    <p id="page-subtitle" class="text-secondary">Статистика и отслеживание изменений лицензий Microsoft 365</p>
-                </div>
-                <div class="sync-status-indicator">
-                    <span class="status-dot green"></span>
-                    <span id="sync-status-text">Система готова</span>
-                </div>
-            </header>
-
-            <!-- Floating Sync Status Panel -->
-            <div id="sync-progress-banner" class="sync-progress-banner">
-                <div class="sync-banner-content">
-                    <div class="sync-info">
-                        <i class="fa-solid fa-rotate fa-spin text-accent"></i>
-                        <span id="sync-progress-message">Выполняется синхронизация с M365...</span>
-                    </div>
-                    <div class="sync-actions">
-                        <button id="cancel-sync-btn" class="btn btn-danger btn-small">
-                            <i class="fa-solid fa-ban"></i> Отменить синхронизацию
-                        </button>
-                    </div>
-                </div>
-                <div class="sync-progress-bar-container">
-                    <div id="sync-progress-bar-fill" class="sync-progress-bar-fill"></div>
-                </div>
-            </div>
-
-            <!-- TAB 1: DASHBOARD -->
-            <section id="tab-dashboard" class="tab-content active">
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon icon-users">
-                            <i class="fa-solid fa-users"></i>
-                        </div>
-                        <div class="stat-details">
-                            <h3>Пользователей всего</h3>
-                            <p class="stat-value" id="stat-total-users">-</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon icon-licenses">
-                            <i class="fa-solid fa-id-card"></i>
-                        </div>
-                        <div class="stat-details">
-                            <h3>Видов лицензий</h3>
-                            <p class="stat-value" id="stat-total-licenses">-</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon icon-status">
-                            <i class="fa-solid fa-circle-check"></i>
-                        </div>
-                        <div class="stat-details">
-                            <h3>Статус проверки</h3>
-                            <p class="stat-value text-success" id="stat-last-status">-</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon icon-time">
-                            <i class="fa-solid fa-clock"></i>
-                        </div>
-                        <div class="stat-details">
-                            <h3>Последняя выгрузка</h3>
-                            <p class="stat-value" id="stat-last-time">-</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="dashboard-details">
-                    <!-- Left: Active Licenses -->
-                    <div class="panel licenses-panel">
-                        <h2>Распределение лицензий</h2>
-                        <div class="licenses-list" id="dashboard-licenses-list">
-                            <p class="empty-state">Нет данных. Выполните синхронизацию.</p>
-                        </div>
-                    </div>
-                    <!-- Right: Recent changes log -->
-                    <div class="panel history-panel">
-                        <h2>История изменений (за 30 дней)</h2>
-                        <div class="timeline" id="dashboard-timeline">
-                            <p class="empty-state">Изменений пока не обнаружено.</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- TAB 2: USERS -->
-            <section id="tab-users" class="tab-content">
-                <div class="panel table-panel">
-                    <div class="table-actions">
-                        <div class="filter-group">
-                            <div class="search-box">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                                <input type="text" id="user-search" placeholder="Поиск UPN, имени...">
-                            </div>
-                            <div class="custom-select" id="select-license">
-                                <div class="select-trigger">
-                                    <span id="select-license-text">Все лицензии</span>
-                                    <i class="fa-solid fa-chevron-down"></i>
-                                </div>
-                                <div class="select-options" id="select-license-options">
-                                    <div class="option active" data-value="">Все лицензии</div>
-                                </div>
-                            </div>
-                            <div class="custom-select" id="select-group">
-                                <div class="select-trigger">
-                                    <span id="select-group-text">Все группы</span>
-                                    <i class="fa-solid fa-chevron-down"></i>
-                                </div>
-                                <div class="select-options" id="select-group-options">
-                                    <div class="option active" data-value="">Все группы</div>
-                                </div>
-                            </div>
-                            <button id="reset-filters-btn" class="btn btn-secondary">
-                                <i class="fa-solid fa-filter-circle-xmark"></i> Сбросить
-                            </button>
-                        </div>
-                        <a href="/api/export" id="export-excel-btn" class="btn btn-primary">
-                            <i class="fa-solid fa-file-excel"></i> Экспорт в Excel
-                        </a>
-                    </div>
-
-                    <div class="table-container">
-                        <table class="users-table">
-                            <thead>
-                                <tr>
-                                    <th>Имя</th>
-                                    <th>UPN (Логин)</th>
-                                    <th>Почта</th>
-                                    <th>Статус</th>
-                                    <th>Лицензии</th>
-                                    <th>Группы</th>
-                                </tr>
-                            </thead>
-                            <tbody id="users-table-body">
-                                <tr>
-                                    <td colspan="6" class="text-center">Загрузка пользователей...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="pagination">
-                        <button id="prev-page" class="btn btn-secondary" disabled>
-                            <i class="fa-solid fa-chevron-left"></i> Назад
-                        </button>
-                        <span id="page-info">Страница 1 из 1</span>
-                        <button id="next-page" class="btn btn-secondary" disabled>
-                            Вперед <i class="fa-solid fa-chevron-right"></i>
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- TAB 3: SYNC HISTORY -->
-            <section id="tab-sync" class="tab-content">
-                <div class="panel sync-panel">
-                    <div class="sync-header">
-                        <h2>Сессии синхронизации</h2>
-                        <button id="trigger-sync-btn" class="btn btn-primary">
-                            <i class="fa-solid fa-play"></i> Запустить синхронизацию
-                        </button>
-                    </div>
-                    <p class="text-secondary mb-20">Синхронизация получает данные напрямую из Microsoft Graph API, проверяет изменения и формирует diff-лог.</p>
-                    
-                    <div class="table-container">
-                        <table class="syncs-table">
-                            <thead>
-                                <tr>
-                                    <th>Время</th>
-                                    <th>Статус</th>
-                                    <th>Кол-во пользователей</th>
-                                    <th>Описание результата</th>
-                                </tr>
-                            </thead>
-                            <tbody id="syncs-table-body">
-                                <tr>
-                                    <td colspan="4" class="text-center">Загрузка истории...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-            <!-- TAB 4: SETTINGS -->
-            <section id="tab-settings" class="tab-content">
-                <form id="settings-form" class="settings-form">
-                    <!-- Section: M365 Auth -->
-                    <div class="panel">
-                        <h2>Аутентификация Microsoft 365 (Entra ID)</h2>
-                        <p class="text-secondary mb-20">Зарегистрируйте приложение в портале Azure AD / Entra ID и выдайте API разрешения: <code>User.Read.All</code>, <code>Group.Read.All</code>, <code>Directory.Read.All</code>. Для отправки писем через API также требуется <code>Mail.Send</code>.</p>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="tenant_id">Tenant ID (ID тенанта)</label>
-                                <input type="text" id="tenant_id" name="tenant_id" required placeholder="например: 12345678-abcd-1234-abcd-1234567890ab">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="client_id">Application (Client) ID</label>
-                                <input type="text" id="client_id" name="client_id" required placeholder="например: 87654321-abcd-8765-abcd-8765432109ba">
-                            </div>
-                            <div class="form-group">
-                                <label for="client_secret">Client Secret (Секрет приложения)</label>
-                                <input type="password" id="client_secret" name="client_secret" required placeholder="••••••••••••••••••••••••">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Section: Email notification -->
-                    <div class="panel">
-                        <h2>Настройки отправки отчетов по почте</h2>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="email_to">Кому отправлять отчеты (Email)</label>
-                                <input type="email" id="email_to" name="email_to" placeholder="admin@domain.com">
-                            </div>
-                            <div class="form-group">
-                                <label>Периодичность отправки отчетов по почте</label>
-                                <div class="custom-select" id="select-email-frequency" style="width: 100%;">
-                                    <div class="select-trigger">
-                                        <span id="select-email-frequency-text">При каждой синхронизации</span>
-                                        <i class="fa-solid fa-chevron-down"></i>
-                                    </div>
-                                    <div class="select-options" id="select-email-frequency-options">
-                                        <div class="option active" data-value="sync">При каждой синхронизации</div>
-                                        <div class="option" data-value="daily">Раз в сутки (раз в 24 часа)</div>
-                                        <div class="option" data-value="weekly">Раз в неделю (раз в 7 дней)</div>
-                                        <div class="option" data-value="monthly">Раз в месяц (раз в 30 дней)</div>
-                                        <div class="option" data-value="disabled">Отключить автоматические отчеты</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="toggle-container mb-20">
-                            <label class="switch">
-                                <input type="checkbox" id="send_via_graph" name="send_via_graph">
-                                <span class="slider"></span>
-                            </label>
-                            <div class="toggle-text">
-                                <label for="send_via_graph">Отправлять через Microsoft Graph API</label>
-                                <p class="text-secondary">Письмо отправляется напрямую через API из ящика указанного ниже пользователя.</p>
-                            </div>
-                        </div>
-
-                        <div id="graph-mail-fields" class="form-row">
-                            <div class="form-group">
-                                <label for="send_from_graph_user">От имени какого пользователя Graph отправлять (UPN/Email)</label>
-                                <input type="text" id="send_from_graph_user" name="send_from_graph_user" placeholder="sender@domain.com">
-                            </div>
-                        </div>
-
-                        <div id="smtp-mail-fields">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="email_from">Адрес отправителя (SMTP From)</label>
-                                    <input type="email" id="email_from" name="email_from" placeholder="noreply@domain.com">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="smtp_server">SMTP Сервер</label>
-                                    <input type="text" id="smtp_server" name="smtp_server" placeholder="smtp.mail.ru или smtp.gmail.com">
-                                </div>
-                                <div class="form-group">
-                                    <label for="smtp_port">SMTP Порт</label>
-                                    <input type="number" id="smtp_port" name="smtp_port" value="587">
-                                </div>
-                            </div>
-                            <div class="toggle-container mb-20">
-                                <label class="switch">
-                                    <input type="checkbox" id="use_smtp_auth" name="use_smtp_auth">
-                                    <span class="slider"></span>
-                                </label>
-                                <div class="toggle-text">
-                                    <label for="use_smtp_auth">Использовать авторизацию SMTP</label>
-                                </div>
-                            </div>
-                            <div id="smtp-auth-fields" class="form-row">
-                                <div class="form-group">
-                                    <label for="smtp_user">Пользователь SMTP</label>
-                                    <input type="text" id="smtp_user" name="smtp_user" placeholder="smtp_user@domain.com">
-                                </div>
-                                <div class="form-group">
-                                    <label for="smtp_password">Пароль SMTP</label>
-                                    <input type="password" id="smtp_password" name="smtp_password" placeholder="••••••••••••">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Section: Automation / Schedule -->
-                    <div class="panel">
-                        <h2>Автоматизация и расписание</h2>
-                        <div class="toggle-container mb-20">
-                            <label class="switch">
-                                <input type="checkbox" id="auto_sync_enabled" name="auto_sync_enabled">
-                                <span class="slider"></span>
-                            </label>
-                            <div class="toggle-text">
-                                <label for="auto_sync_enabled">Включить автоматическую синхронизацию</label>
-                                <p class="text-secondary">Скрипт будет периодически опрашивать Microsoft Graph в фоновом режиме.</p>
-                            </div>
-                        </div>
-                        <div class="form-row" id="sync-interval-container">
-                            <div class="form-group">
-                                <label for="sync_interval_hours">Интервал синхронизации (в часах)</label>
-                                <input type="number" id="sync_interval_hours" name="sync_interval_hours" min="1" max="168" value="24">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary btn-large">
-                            <i class="fa-solid fa-floppy-disk"></i> Сохранить настройки
-                        </button>
-                    </div>
-                </form>
-
-                <!-- Section: Change Password -->
-                <div class="panel" style="margin-top: 30px;">
-                    <h2>Безопасность (Смена локального пароля)</h2>
-                    <p class="text-secondary mb-20">Смена пароля текущего локального пользователя администратора.</p>
-                    <form id="change-password-form" onsubmit="event.preventDefault(); handleChangePassword();">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="current_password">Текущий пароль</label>
-                                <input type="password" id="current_password" required placeholder="••••••••">
-                            </div>
-                            <div class="form-group">
-                                <label for="new_password">Новый пароль</label>
-                                <input type="password" id="new_password" required placeholder="••••••••">
-                            </div>
-                            <div class="form-group">
-                                <label for="confirm_password">Подтвердите новый пароль</label>
-                                <input type="password" id="confirm_password" required placeholder="••••••••">
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-secondary">
-                            <i class="fa-solid fa-key"></i> Обновить пароль
-                        </button>
-                    </form>
-                </div>
-            </section>
-        </main>
-    </div>
-
-    <!-- Notification Toast -->
-    <div id="toast" class="toast">
-        <i class="toast-icon fa-solid fa-circle-info"></i>
-        <span id="toast-message">Сообщение</span>
-    </div>
-
-    <script src="script.js"></script>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M365 License and User Monitor</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <meta name="description" content="Панель мониторинга учетных записей, лицензий и членства в группах Microsoft 365 с отслеживанием изменений и экспортом в Excel.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Page Overlay -->
+    <div id="login-overlay" class="login-overlay active">
+        <div class="login-card">
+            <div class="login-logo-container">
+                <i class="fa-solid fa-shield-halved login-logo"></i>
+                <h2>M365 Monitor</h2>
+                <p>Вход в систему управления лицензиями</p>
+            </div>
+            
+            <div class="error-banner" id="login-error" style="display: none;">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span id="login-error-text">Неверный логин или пароль</span>
+            </div>
+
+            <form id="login-form" onsubmit="event.preventDefault(); handleLocalLogin();">
+                <div class="input-field">
+                    <i class="fa-solid fa-user"></i>
+                    <input type="text" id="login-username" placeholder="Имя пользователя" required autocomplete="username">
+                </div>
+                <div class="input-field">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="login-password" placeholder="Пароль" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-right-to-bracket"></i> Войти
+                </button>
+            </form>
+            
+            <div class="login-divider">
+                <span>ИЛИ</span>
+            </div>
+            
+            <button id="microsoft-login-btn" class="btn btn-microsoft btn-block" onclick="handleMicrosoftLogin()">
+                <svg class="microsoft-logo" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21">
+                    <title>MS-SymbolLockup</title>
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                </svg>
+                <span>Войти через Microsoft 365</span>
+            </button>
+        </div>
+    </div>
+    <div class="background-glows">
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+        <div class="glow glow-3"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-shield-halved brand-logo"></i>
+                <div class="brand-info">
+                    <h2>M365 Monitor</h2>
+                    <span id="user-display-name">Cloud Management</span>
+                </div>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-tab="dashboard" id="nav-dashboard">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span>Панель</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="users" id="nav-users">
+                    <i class="fa-solid fa-users"></i>
+                    <span>Пользователи</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="sync" id="nav-sync">
+                    <i class="fa-solid fa-rotate"></i>
+                    <span>Синхронизация</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="settings" id="nav-settings">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>Настройки</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="quick-sync-btn" class="btn btn-secondary" style="margin-bottom: 10px; width: 100%;">
+                    <i class="fa-solid fa-sync"></i> Синхронизация
+                </button>
+                <button id="logout-btn" class="btn btn-danger btn-block" onclick="handleLogout()" style="width: 100%;">
+                    <i class="fa-solid fa-right-from-bracket"></i> Выйти
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-title">
+                    <h1 id="page-title">Сводная информация</h1>
+                    <p id="page-subtitle" class="text-secondary">Статистика и отслеживание изменений лицензий Microsoft 365</p>
+                </div>
+                <div class="sync-status-indicator">
+                    <span class="status-dot green"></span>
+                    <span id="sync-status-text">Система готова</span>
+                </div>
+            </header>
+
+            <!-- Floating Sync Status Panel -->
+            <div id="sync-progress-banner" class="sync-progress-banner">
+                <div class="sync-banner-content">
+                    <div class="sync-info">
+                        <i class="fa-solid fa-rotate fa-spin text-accent"></i>
+                        <span id="sync-progress-message">Выполняется синхронизация с M365...</span>
+                    </div>
+                    <div class="sync-actions">
+                        <button id="cancel-sync-btn" class="btn btn-danger btn-small">
+                            <i class="fa-solid fa-ban"></i> Отменить синхронизацию
+                        </button>
+                    </div>
+                </div>
+                <div class="sync-progress-bar-container">
+                    <div id="sync-progress-bar-fill" class="sync-progress-bar-fill"></div>
+                </div>
+            </div>
+
+            <!-- TAB 1: DASHBOARD -->
+            <section id="tab-dashboard" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon icon-users">
+                            <i class="fa-solid fa-users"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Пользователей всего</h3>
+                            <p class="stat-value" id="stat-total-users">-</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-licenses">
+                            <i class="fa-solid fa-id-card"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Видов лицензий</h3>
+                            <p class="stat-value" id="stat-total-licenses">-</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-status">
+                            <i class="fa-solid fa-circle-check"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Статус проверки</h3>
+                            <p class="stat-value text-success" id="stat-last-status">-</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-time">
+                            <i class="fa-solid fa-clock"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Последняя выгрузка</h3>
+                            <p class="stat-value" id="stat-last-time">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-details">
+                    <!-- Left: Active Licenses -->
+                    <div class="panel licenses-panel">
+                        <h2>Распределение лицензий</h2>
+                        <div class="licenses-list" id="dashboard-licenses-list">
+                            <p class="empty-state">Нет данных. Выполните синхронизацию.</p>
+                        </div>
+                    </div>
+                    <!-- Right: Recent changes log -->
+                    <div class="panel history-panel">
+                        <h2>История изменений (за 30 дней)</h2>
+                        <div class="timeline" id="dashboard-timeline">
+                            <p class="empty-state">Изменений пока не обнаружено.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: USERS -->
+            <section id="tab-users" class="tab-content">
+                <div class="panel table-panel">
+                    <div class="table-actions">
+                        <div class="filter-group">
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="user-search" placeholder="Поиск UPN, имени...">
+                            </div>
+                            <div class="custom-select" id="select-license">
+                                <div class="select-trigger">
+                                    <span id="select-license-text">Все лицензии</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="select-options" id="select-license-options">
+                                    <div class="option active" data-value="">Все лицензии</div>
+                                </div>
+                            </div>
+                            <div class="custom-select" id="select-group">
+                                <div class="select-trigger">
+                                    <span id="select-group-text">Все группы</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="select-options" id="select-group-options">
+                                    <div class="option active" data-value="">Все группы</div>
+                                </div>
+                            </div>
+                            <button id="reset-filters-btn" class="btn btn-secondary">
+                                <i class="fa-solid fa-filter-circle-xmark"></i> Сбросить
+                            </button>
+                        </div>
+                        <a href="/api/export" id="export-excel-btn" class="btn btn-primary">
+                            <i class="fa-solid fa-file-excel"></i> Экспорт в Excel
+                        </a>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="users-table">
+                            <thead>
+                                <tr>
+                                    <th>Имя</th>
+                                    <th>UPN (Логин)</th>
+                                    <th>Почта</th>
+                                    <th>Статус</th>
+                                    <th>Лицензии</th>
+                                    <th>Группы</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <tr>
+                                    <td colspan="6" class="text-center">Загрузка пользователей...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination">
+                        <button id="prev-page" class="btn btn-secondary" disabled>
+                            <i class="fa-solid fa-chevron-left"></i> Назад
+                        </button>
+                        <span id="page-info">Страница 1 из 1</span>
+                        <button id="next-page" class="btn btn-secondary" disabled>
+                            Вперед <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: SYNC HISTORY -->
+            <section id="tab-sync" class="tab-content">
+                <div class="panel sync-panel">
+                    <div class="sync-header">
+                        <h2>Сессии синхронизации</h2>
+                        <button id="trigger-sync-btn" class="btn btn-primary">
+                            <i class="fa-solid fa-play"></i> Запустить синхронизацию
+                        </button>
+                    </div>
+                    <p class="text-secondary mb-20">Синхронизация получает данные напрямую из Microsoft Graph API, проверяет изменения и формирует diff-лог.</p>
+                    
+                    <div class="table-container">
+                        <table class="syncs-table">
+                            <thead>
+                                <tr>
+                                    <th>Время</th>
+                                    <th>Статус</th>
+                                    <th>Кол-во пользователей</th>
+                                    <th>Описание результата</th>
+                                </tr>
+                            </thead>
+                            <tbody id="syncs-table-body">
+                                <tr>
+                                    <td colspan="4" class="text-center">Загрузка истории...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: SETTINGS -->
+            <section id="tab-settings" class="tab-content">
+                <form id="settings-form" class="settings-form">
+                    <!-- Section: M365 Auth -->
+                    <div class="panel">
+                        <h2>Аутентификация Microsoft 365 (Entra ID)</h2>
+                        <p class="text-secondary mb-20">Зарегистрируйте приложение в портале Azure AD / Entra ID и выдайте API разрешения: <code>User.Read.All</code>, <code>Group.Read.All</code>, <code>Directory.Read.All</code>. Для отправки писем через API также требуется <code>Mail.Send</code>.</p>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenant_id">Tenant ID (ID тенанта)</label>
+                                <input type="text" id="tenant_id" name="tenant_id" required placeholder="например: 12345678-abcd-1234-abcd-1234567890ab">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="client_id">Application (Client) ID</label>
+                                <input type="text" id="client_id" name="client_id" required placeholder="например: 87654321-abcd-8765-abcd-8765432109ba">
+                            </div>
+                            <div class="form-group">
+                                <label for="client_secret">Client Secret (Секрет приложения)</label>
+                                <input type="password" id="client_secret" name="client_secret" required placeholder="••••••••••••••••••••••••">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Email notification -->
+                    <div class="panel">
+                        <h2>Настройки отправки отчетов по почте</h2>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="email_to">Кому отправлять отчеты (Email)</label>
+                                <input type="email" id="email_to" name="email_to" placeholder="admin@domain.com">
+                            </div>
+                            <div class="form-group">
+                                <label>Периодичность отправки отчетов по почте</label>
+                                <div class="custom-select" id="select-email-frequency" style="width: 100%;">
+                                    <div class="select-trigger">
+                                        <span id="select-email-frequency-text">При каждой синхронизации</span>
+                                        <i class="fa-solid fa-chevron-down"></i>
+                                    </div>
+                                    <div class="select-options" id="select-email-frequency-options">
+                                        <div class="option active" data-value="sync">При каждой синхронизации</div>
+                                        <div class="option" data-value="daily">Раз в сутки (раз в 24 часа)</div>
+                                        <div class="option" data-value="weekly">Раз в неделю (раз в 7 дней)</div>
+                                        <div class="option" data-value="monthly">Раз в месяц (раз в 30 дней)</div>
+                                        <div class="option" data-value="disabled">Отключить автоматические отчеты</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="toggle-container mb-20">
+                            <label class="switch">
+                                <input type="checkbox" id="send_via_graph" name="send_via_graph">
+                                <span class="slider"></span>
+                            </label>
+                            <div class="toggle-text">
+                                <label for="send_via_graph">Отправлять через Microsoft Graph API</label>
+                                <p class="text-secondary">Письмо отправляется напрямую через API из ящика указанного ниже пользователя.</p>
+                            </div>
+                        </div>
+
+                        <div id="graph-mail-fields" class="form-row">
+                            <div class="form-group">
+                                <label for="send_from_graph_user">От имени какого пользователя Graph отправлять (UPN/Email)</label>
+                                <input type="text" id="send_from_graph_user" name="send_from_graph_user" placeholder="sender@domain.com">
+                            </div>
+                        </div>
+
+                        <div id="smtp-mail-fields">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="email_from">Адрес отправителя (SMTP From)</label>
+                                    <input type="email" id="email_from" name="email_from" placeholder="noreply@domain.com">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="smtp_server">SMTP Сервер</label>
+                                    <input type="text" id="smtp_server" name="smtp_server" placeholder="smtp.mail.ru или smtp.gmail.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="smtp_port">SMTP Порт</label>
+                                    <input type="number" id="smtp_port" name="smtp_port" value="587">
+                                </div>
+                            </div>
+                            <div class="toggle-container mb-20">
+                                <label class="switch">
+                                    <input type="checkbox" id="use_smtp_auth" name="use_smtp_auth">
+                                    <span class="slider"></span>
+                                </label>
+                                <div class="toggle-text">
+                                    <label for="use_smtp_auth">Использовать авторизацию SMTP</label>
+                                </div>
+                            </div>
+                            <div id="smtp-auth-fields" class="form-row">
+                                <div class="form-group">
+                                    <label for="smtp_user">Пользователь SMTP</label>
+                                    <input type="text" id="smtp_user" name="smtp_user" placeholder="smtp_user@domain.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="smtp_password">Пароль SMTP</label>
+                                    <input type="password" id="smtp_password" name="smtp_password" placeholder="••••••••••••">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Automation / Schedule -->
+                    <div class="panel">
+                        <h2>Автоматизация и расписание</h2>
+                        <div class="toggle-container mb-20">
+                            <label class="switch">
+                                <input type="checkbox" id="auto_sync_enabled" name="auto_sync_enabled">
+                                <span class="slider"></span>
+                            </label>
+                            <div class="toggle-text">
+                                <label for="auto_sync_enabled">Включить автоматическую синхронизацию</label>
+                                <p class="text-secondary">Скрипт будет периодически опрашивать Microsoft Graph в фоновом режиме.</p>
+                            </div>
+                        </div>
+                        <div class="form-row" id="sync-interval-container">
+                            <div class="form-group">
+                                <label for="sync_interval_hours">Интервал синхронизации (в часах)</label>
+                                <input type="number" id="sync_interval_hours" name="sync_interval_hours" min="1" max="168" value="24">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-large">
+                            <i class="fa-solid fa-floppy-disk"></i> Сохранить настройки
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Section: Change Password -->
+                <div class="panel" style="margin-top: 30px;">
+                    <h2>Безопасность (Смена локального пароля)</h2>
+                    <p class="text-secondary mb-20">Смена пароля текущего локального пользователя администратора.</p>
+                    <form id="change-password-form" onsubmit="event.preventDefault(); handleChangePassword();">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="current_password">Текущий пароль</label>
+                                <input type="password" id="current_password" required placeholder="••••••••">
+                            </div>
+                            <div class="form-group">
+                                <label for="new_password">Новый пароль</label>
+                                <input type="password" id="new_password" required placeholder="••••••••">
+                            </div>
+                            <div class="form-group">
+                                <label for="confirm_password">Подтвердите новый пароль</label>
+                                <input type="password" id="confirm_password" required placeholder="••••••••">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-secondary">
+                            <i class="fa-solid fa-key"></i> Обновить пароль
+                        </button>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">
+        <i class="toast-icon fa-solid fa-circle-info"></i>
+        <span id="toast-message">Сообщение</span>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
