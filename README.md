@@ -27,7 +27,7 @@
 Для подключения к Microsoft Graph API необходимо зарегистрировать приложение (App Registration) на портале Microsoft Entra ID. Для этого вам понадобятся права администратора (Global Administrator или Application Administrator).
 
 ### Шаг 1. Создание (регистрация) приложения
-1. Перейдите в [Microsoft Entra ID admin center](https://admin.entra.microsoft.com/) и авторизуйтесь.
+1. Перейдите в [Microsoft Entra ID admin center](https://entra.microsoft.com/) и авторизуйтесь.
 2. В левом меню выберите **Identity (Удостоверение)** -> **Applications (Приложения)** -> **App registrations (Регистрация приложений)**.
 3. Нажмите кнопку **New registration (Новая регистрация)** вверху страницы.
 4. В поле **Name (Имя)** введите название приложения, например: `M365 License Monitor`.
