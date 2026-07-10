@@ -43,22 +43,19 @@
 
 ### Способ 1: С помощью Docker (Рекомендуемый)
 
+Благодаря настроенному GitHub Actions, вам **не нужно собирать образ вручную**. Вы можете запустить уже собранный контейнер напрямую из GitHub Container Registry (GHCR).
+
 СУБД SQLite сохраняет базу данных `monitor.db` в каталоге `/app/backend`. Чтобы сохранить настройки и историю изменений при перезапуске контейнера, примонтируйте эту папку на хост-машину.
 
-1. **Сборка образа**:
-   ```bash
-   docker build -t m365-license-monitor .
-   ```
-
-2. **Запуск контейнера**:
-   ```bash
-   docker run -d \
-     -p 8000:8000 \
-     -v /path/to/local/data:/app/backend \
-     --name m365-monitor \
-     m365-license-monitor
-   ```
-   *(Замените `/path/to/local/data` на реальный локальный путь на сервере для хранения БД).*
+**Запуск контейнера из реестра GHCR**:
+```bash
+docker run -d \
+  -p 8000:8000 \
+  -v /path/to/local/data:/app/backend \
+  --name m365-monitor \
+  ghcr.io/ttolyanich/m365-license-monitor:latest
+```
+*(Замените `/path/to/local/data` на реальный локальный путь на сервере для хранения БД).*
 
 ---
 
