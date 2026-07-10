@@ -43,15 +43,20 @@
 
 ### Способ 1: С помощью Docker Compose (Рекомендуемый)
 
-Благодаря настроенному GitHub Actions, вам **не нужно собирать образ вручную**. Вы можете запустить контейнер из готового образа в GitHub Container Registry (GHCR) с помощью Docker Compose.
+Благодаря настроенному GitHub Actions, вам **не нужно собирать образ вручную**. 
 
-1. Скопируйте файл `docker-compose.yml` в рабочую папку на сервере.
+1. Клонируйте репозиторий в каталог `/opt/m365-license-monitor` и перейдите в него:
+   ```bash
+   git clone https://github.com/Ttolyanich/m365-license-monitor.git /opt/m365-license-monitor
+   cd /opt/m365-license-monitor
+   ```
+
 2. Запустите контейнер одной командой:
    ```bash
    docker compose up -d
    ```
 
-СУБД SQLite автоматически сохранит базу данных `monitor.db` и настройки в локальную папку `./data` рядом с файлом конфигурации.
+СУБД SQLite автоматически сохранит базу данных `monitor.db` и настройки в локальную папку `./data` внутри каталога проекта.
 
 ---
 
