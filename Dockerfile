@@ -3,6 +3,10 @@ FROM python:3.12-slim
 # Установка рабочей директории
 WORKDIR /app
 
+# Директория для хранения базы данных SQLite
+ENV DB_DIR=/app/data
+RUN mkdir -p /app/data
+
 # Установка зависимостей
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

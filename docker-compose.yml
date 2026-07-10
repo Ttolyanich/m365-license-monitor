@@ -7,5 +7,5 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/backend
+      - ./data:/app/data
     restart: unless-stopped
