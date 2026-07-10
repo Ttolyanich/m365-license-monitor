@@ -81,7 +81,7 @@
 
 Скрипт `Export-M365UsersInfo.ps1` расположен в корне проекта. Для автоматического запуска по расписанию настройте его в планировщике задач Windows.
 
-**Пример команды запуска**:
+**Пример запуска с отправкой через SMTP**:
 ```powershell
 .\Export-M365UsersInfo.ps1 `
   -TenantId "Tenant-ID-из-Entra" `
@@ -96,4 +96,14 @@
   -SmtpPassword "smtp_password"
 ```
 
-Для отправки писем через API Graph без SMTP, используйте флаги `-SendViaGraph` и `-SendFromGraphUser "sender@company.com"`.
+**Пример запуска с отправкой через MS Graph API** (без использования SMTP, требуется разрешение `Mail.Send` для приложения):
+```powershell
+.\Export-M365UsersInfo.ps1 `
+  -TenantId "Tenant-ID-из-Entra" `
+  -ClientId "Client-ID-приложения" `
+  -ClientSecret "Секрет-приложения" `
+  -EmailTo "admin@company.com" `
+  -EmailFrom "noreply@company.com" `
+  -SendViaGraph `
+  -SendFromGraphUser "sender@company.com"
+```
