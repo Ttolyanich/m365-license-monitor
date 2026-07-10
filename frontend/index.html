@@ -14,6 +14,50 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Login Page Overlay -->
+    <div id="login-overlay" class="login-overlay active">
+        <div class="login-card">
+            <div class="login-logo-container">
+                <i class="fa-solid fa-shield-halved login-logo"></i>
+                <h2>M365 Monitor</h2>
+                <p>Вход в систему управления лицензиями</p>
+            </div>
+            
+            <div class="error-banner" id="login-error" style="display: none;">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span id="login-error-text">Неверный логин или пароль</span>
+            </div>
+
+            <form id="login-form" onsubmit="event.preventDefault(); handleLocalLogin();">
+                <div class="input-field">
+                    <i class="fa-solid fa-user"></i>
+                    <input type="text" id="login-username" placeholder="Имя пользователя" required autocomplete="username">
+                </div>
+                <div class="input-field">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="login-password" placeholder="Пароль" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-right-to-bracket"></i> Войти
+                </button>
+            </form>
+            
+            <div class="login-divider">
+                <span>ИЛИ</span>
+            </div>
+            
+            <button id="microsoft-login-btn" class="btn btn-microsoft btn-block" onclick="handleMicrosoftLogin()">
+                <svg class="microsoft-logo" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21">
+                    <title>MS-SymbolLockup</title>
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                </svg>
+                <span>Войти через Microsoft 365</span>
+            </button>
+        </div>
+    </div>
     <div class="background-glows">
         <div class="glow glow-1"></div>
         <div class="glow glow-2"></div>
@@ -27,7 +71,7 @@
                 <i class="fa-solid fa-shield-halved brand-logo"></i>
                 <div class="brand-info">
                     <h2>M365 Monitor</h2>
-                    <span>Cloud Management</span>
+                    <span id="user-display-name">Cloud Management</span>
                 </div>
             </div>
             <nav class="nav-menu">
@@ -49,8 +93,11 @@
                 </a>
             </nav>
             <div class="sidebar-footer">
-                <button id="quick-sync-btn" class="btn btn-secondary">
+                <button id="quick-sync-btn" class="btn btn-secondary" style="margin-bottom: 10px; width: 100%;">
                     <i class="fa-solid fa-sync"></i> Синхронизация
+                </button>
+                <button id="logout-btn" class="btn btn-danger btn-block" onclick="handleLogout()" style="width: 100%;">
+                    <i class="fa-solid fa-right-from-bracket"></i> Выйти
                 </button>
             </div>
         </aside>
@@ -136,15 +183,23 @@
                                 <i class="fa-solid fa-magnifying-glass"></i>
                                 <input type="text" id="user-search" placeholder="Поиск UPN, имени...">
                             </div>
-                            <div class="select-wrapper">
-                                <select id="filter-license">
-                                    <option value="">Все лицензии</option>
-                                </select>
+                            <div class="custom-select" id="select-license">
+                                <div class="select-trigger">
+                                    <span id="select-license-text">Все лицензии</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="select-options" id="select-license-options">
+                                    <div class="option active" data-value="">Все лицензии</div>
+                                </div>
                             </div>
-                            <div class="select-wrapper">
-                                <select id="filter-group">
-                                    <option value="">Все группы</option>
-                                </select>
+                            <div class="custom-select" id="select-group">
+                                <div class="select-trigger">
+                                    <span id="select-group-text">Все группы</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="select-options" id="select-group-options">
+                                    <div class="option active" data-value="">Все группы</div>
+                                </div>
                             </div>
                             <button id="reset-filters-btn" class="btn btn-secondary">
                                 <i class="fa-solid fa-filter-circle-xmark"></i> Сбросить

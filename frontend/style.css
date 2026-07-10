@@ -939,3 +939,300 @@ input:checked + .slider:before {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* ==========================================================================
+   AUTHENTICATION LAYOUT & GLASSMORPHISM LOGIN
+   ========================================================================== */
+.login-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: hsla(240, 25%, 5%, 0.85);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    z-index: 9999;
+    display: none;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-overlay.active {
+    display: flex;
+}
+
+.login-card {
+    background: var(--bg-card);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid var(--border-color);
+    padding: 40px;
+    border-radius: var(--border-radius);
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4), 0 0 40px var(--primary-glow);
+    animation: loginFadeIn 0.5s ease-out;
+}
+
+@keyframes loginFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.login-logo-container {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.login-logo {
+    font-size: 48px;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 4px 12px var(--primary-glow));
+    margin-bottom: 15px;
+}
+
+.login-logo-container h2 {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 5px;
+    letter-spacing: -0.5px;
+}
+
+.login-logo-container p {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.error-banner {
+    background: rgba(355, 85, 55, 0.15);
+    border: 1px solid var(--danger);
+    color: var(--text-primary);
+    padding: 12px 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+}
+
+.input-field {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.input-field i {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    transition: color var(--transition-speed);
+}
+
+.input-field input {
+    width: 100%;
+    padding: 14px 15px 14px 45px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    outline: none;
+    transition: border-color var(--transition-speed), box-shadow var(--transition-speed);
+}
+
+.input-field input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.input-field input:focus + i {
+    color: var(--primary-color);
+}
+
+.btn-block {
+    width: 100%;
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    color: var(--text-muted);
+    margin: 25px 0;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.login-divider::before, .login-divider::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.login-divider:not(:empty)::before {
+    margin-right: 15px;
+}
+
+.login-divider:not(:empty)::after {
+    margin-left: 15px;
+}
+
+.btn-microsoft {
+    background: #2f2f2f;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 20px;
+    font-weight: 500;
+}
+
+.btn-microsoft:hover {
+    background: #3f3f3f;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.microsoft-logo {
+    width: 18px;
+    height: 18px;
+}
+
+.btn-danger {
+    background: rgba(355, 85, 55, 0.2);
+    color: var(--danger);
+    border: 1px solid rgba(355, 85, 55, 0.4);
+}
+
+.btn-danger:hover {
+    background: rgba(355, 85, 55, 0.35);
+    color: #fff;
+    box-shadow: 0 0 15px var(--danger-glow);
+}
+
+/* ==========================================================================
+   CUSTOM DROPDOWN (SELECT) COMPONENT
+   ========================================================================== */
+.custom-select {
+    position: relative;
+    width: 200px;
+    user-select: none;
+    font-size: 14px;
+}
+
+.custom-select .select-trigger {
+    background: var(--secondary-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: border-color var(--transition-speed), background-color var(--transition-speed), box-shadow var(--transition-speed);
+}
+
+.custom-select .select-trigger:hover {
+    background: var(--secondary-hover);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.custom-select.open .select-trigger {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.custom-select .select-trigger i {
+    font-size: 11px;
+    color: var(--text-muted);
+    transition: transform var(--transition-speed);
+}
+
+.custom-select.open .select-trigger i {
+    transform: rotate(180deg);
+    color: var(--primary-color);
+}
+
+.custom-select .select-options {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background: hsla(240, 18%, 10%, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    max-height: 250px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    display: none;
+    animation: selectFadeIn 0.2s ease-out;
+}
+
+@keyframes selectFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.custom-select.open .select-options {
+    display: block;
+}
+
+.custom-select .select-options .option {
+    padding: 10px 15px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: background-color var(--transition-speed), color var(--transition-speed);
+}
+
+.custom-select .select-options .option:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.custom-select .select-options .option.active {
+    background: var(--primary-color);
+    color: #fff;
+    font-weight: 500;
+}
+
+/* Custom Select Scrollbar */
+.custom-select .select-options::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-select .select-options::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-select .select-options::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.custom-select .select-options::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}

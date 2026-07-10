@@ -2,20 +2,21 @@ import os
 import io
 import sys
 import asyncio
-from datetime import datetime
-
-# Добавляем текущую директорию в sys.path для корректного импорта модулей
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from datetime import datetime, timedelta
+import secrets
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import httpx
 import pandas as pd
 
-from database import init_db, get_db, Config, SyncHistory, UserSnapshot, DiffLog
+# Добавляем текущую директорию в sys.path для корректного импорта модулей
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from database import init_db, get_db, Config, SyncHistory, UserSnapshot, DiffLog, User, SessionToken, hash_password, verify_password
 
 # Initialize database
 init_db()
@@ -33,6 +34,28 @@ app.add_middleware(
 
 # Active sync lock to prevent concurrent sync runs
 sync_lock = asyncio.Lock()
+
+# -------------------------------------------------------------
+# Authentication Dependency
+# -------------------------------------------------------------
+async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    token = request.cookies.get("session_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Не авторизован")
+        
+    session = db.query(SessionToken).filter(
+        SessionToken.token == token,
+        SessionToken.expires_at > datetime.utcnow()
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=401, detail="Сессия недействительна")
+        
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Пользователь не найден")
+        
+    return user
 
 # -------------------------------------------------------------
 # Microsoft Graph Client Helper
@@ -394,15 +417,155 @@ async def run_sync_logic(db_session: Session, config: Config):
             db_session.commit()
 
 # -------------------------------------------------------------
-# API Endpoints
+# Authentication Endpoints (Public)
+# -------------------------------------------------------------
+@app.post("/api/auth/login")
+def login(login_data: dict, response: Response, db: Session = Depends(get_db)):
+    username = login_data.get("username", "")
+    password = login_data.get("password", "")
+    
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Неверное имя пользователя или пароль")
+        
+    token_str = secrets.token_hex(32)
+    session = SessionToken(
+        token=token_str,
+        user_id=user.id,
+        expires_at=datetime.utcnow() + timedelta(days=7)
+    )
+    db.add(session)
+    db.commit()
+    
+    response.set_cookie(
+        key="session_token",
+        value=token_str,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+        secure=False  # Set True if HTTPS is configured
+    )
+    return {"status": "success", "username": user.username}
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    token = request.cookies.get("session_token")
+    if token:
+        db.query(SessionToken).filter(SessionToken.token == token).delete()
+        db.commit()
+    response.delete_cookie("session_token")
+    return {"status": "success"}
+
+@app.get("/api/auth/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    return {
+        "username": current_user.username,
+        "email": current_user.email,
+        "auth_provider": current_user.auth_provider
+    }
+
+@app.get("/api/auth/microsoft")
+def microsoft_login(request: Request, db: Session = Depends(get_db)):
+    config = db.query(Config).first()
+    if not config or not config.tenant_id or not config.client_id:
+        raise HTTPException(status_code=400, detail="M365 integration is not configured in settings.")
+        
+    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/api/auth/callback"
+    state = secrets.token_hex(16)
+    
+    microsoft_url = (
+        f"https://login.microsoftonline.com/{config.tenant_id}/oauth2/v2.0/authorize"
+        f"?client_id={config.client_id}"
+        f"&response_type=code"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_mode=query"
+        f"&scope=openid profile email User.Read"
+        f"&state={state}"
+    )
+    return {"url": microsoft_url}
+
+@app.get("/api/auth/callback")
+async def microsoft_callback(request: Request, response: Response, code: str, state: str = None, db: Session = Depends(get_db)):
+    config = db.query(Config).first()
+    if not config or not config.tenant_id or not config.client_id or not config.client_secret:
+        raise HTTPException(status_code=400, detail="M365 integration is not configured in settings.")
+        
+    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/api/auth/callback"
+    
+    # Exchange code for token
+    token_url = f"https://login.microsoftonline.com/{config.tenant_id}/oauth2/v2.0/token"
+    data = {
+        "client_id": config.client_id,
+        "client_secret": config.client_secret,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        r = await client.post(token_url, data=data)
+        if r.status_code != 200:
+            return HTMLResponse(content=f"<h3>Authentication failed:</h3><pre>{r.text}</pre>", status_code=400)
+            
+        token_data = r.json()
+        access_token = token_data["access_token"]
+        
+        # Get user info
+        me_headers = {"Authorization": f"Bearer {access_token}"}
+        r_me = await client.get("https://graph.microsoft.com/v1.0/me", headers=me_headers)
+        if r_me.status_code != 200:
+            return HTMLResponse(content=f"<h3>Failed to fetch user profile:</h3><pre>{r_me.text}</pre>", status_code=400)
+            
+        me_data = r_me.json()
+        upn = me_data["userPrincipalName"]
+        display_name = me_data.get("displayName", upn)
+        mail = me_data.get("mail") or upn
+        
+        # Find or create user
+        user = db.query(User).filter(User.username == upn).first()
+        if not user:
+            user = User(
+                username=upn,
+                password_hash=hash_password(secrets.token_hex(16)),  # random password for OAuth user
+                email=mail,
+                auth_provider="microsoft"
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
+        # Create local session
+        token_str = secrets.token_hex(32)
+        session = SessionToken(
+            token=token_str,
+            user_id=user.id,
+            expires_at=datetime.utcnow() + timedelta(days=7)
+        )
+        db.add(session)
+        db.commit()
+        
+        # Redirect back to home
+        redir = RedirectResponse(url="/")
+        redir.set_cookie(
+            key="session_token",
+            value=token_str,
+            httponly=True,
+            samesite="lax",
+            max_age=7 * 24 * 3600,
+            secure=False
+        )
+        return redir
+
+# -------------------------------------------------------------
+# Protected API Endpoints
 # -------------------------------------------------------------
 @app.get("/api/config")
-def get_config(db: Session = Depends(get_db)):
+def get_config(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     config = db.query(Config).first()
     return config
 
 @app.post("/api/config")
-def update_config(config_data: dict, db: Session = Depends(get_db)):
+def update_config(config_data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     config = db.query(Config).first()
     if not config:
         config = Config()
@@ -428,7 +591,7 @@ def update_config(config_data: dict, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Настройки сохранены."}
 
 @app.get("/api/dashboard")
-def get_dashboard(db: Session = Depends(get_db)):
+def get_dashboard(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     last_sync = db.query(SyncHistory).order_by(SyncHistory.timestamp.desc()).first()
     
     total_users = 0
@@ -480,7 +643,8 @@ def get_users(
     search: Optional[str] = None,
     group: Optional[str] = None,
     license: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     last_success_sync = db.query(SyncHistory).filter(SyncHistory.status == "success").order_by(SyncHistory.timestamp.desc()).first()
     if not last_success_sync:
@@ -520,7 +684,7 @@ def get_users(
     }
 
 @app.post("/api/sync")
-def trigger_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def trigger_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if sync_lock.locked():
         raise HTTPException(status_code=400, detail="Синхронизация уже выполняется.")
         
@@ -532,7 +696,7 @@ def trigger_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db
     return {"status": "started", "message": "Синхронизация запущена в фоновом режиме."}
 
 @app.get("/api/syncs")
-def get_syncs(db: Session = Depends(get_db)):
+def get_syncs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     syncs = db.query(SyncHistory).order_by(SyncHistory.timestamp.desc()).limit(20).all()
     return [
         {
@@ -545,7 +709,7 @@ def get_syncs(db: Session = Depends(get_db)):
     ]
 
 @app.get("/api/export")
-def export_excel(sync_id: Optional[int] = None, db: Session = Depends(get_db)):
+def export_excel(sync_id: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if sync_id:
         sync_run = db.query(SyncHistory).filter(SyncHistory.id == sync_id).first()
     else:
@@ -570,7 +734,6 @@ def export_excel(sync_id: Optional[int] = None, db: Session = Depends(get_db)):
 async def auto_sync_worker():
     while True:
         try:
-            # We create a new DB session for each iteration
             db = next(get_db())
             config = db.query(Config).first()
             if config and config.auto_sync_enabled and config.tenant_id and config.client_id:

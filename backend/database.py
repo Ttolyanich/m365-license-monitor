@@ -1,5 +1,7 @@
 import os
-from datetime import datetime
+import hashlib
+import uuid
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -12,6 +14,38 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Helper functions for password hashing
+def hash_password(password: str, salt: str = None) -> str:
+    if not salt:
+        salt = uuid.uuid4().hex
+    pwd_hash = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
+    return f"{salt}:{pwd_hash}"
+
+def verify_password(password: str, stored_password: str) -> bool:
+    if not stored_password or ":" not in stored_password:
+        return False
+    salt, pwd_hash = stored_password.split(":")
+    return hash_password(password, salt).split(":")[1] == pwd_hash
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)  # stored as "salt:sha256"
+    email = Column(String, nullable=True)
+    auth_provider = Column(String, default="local")  # "local" or "microsoft"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class SessionToken(Base):
+    __tablename__ = "session_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime)
 
 class Config(Base):
     __tablename__ = "configs"
@@ -75,14 +109,26 @@ class DiffLog(Base):
 def init_db():
     Base.metadata.create_all(bind=engine)
     
-    # Create default config if not exists
     session = SessionLocal()
     try:
+        # Create default config if not exists
         config = session.query(Config).first()
         if not config:
             config = Config()
             session.add(config)
-            session.commit()
+            
+        # Create default admin user if no users exist
+        user_count = session.query(User).count()
+        if user_count == 0:
+            admin_user = User(
+                username="admin",
+                password_hash=hash_password("admin"),
+                email="admin@local.host",
+                auth_provider="local"
+            )
+            session.add(admin_user)
+            
+        session.commit()
     finally:
         session.close()
 

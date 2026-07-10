@@ -4,6 +4,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const limit = 50;
     let syncIntervalId = null;
 
+    let selectedLicenseValue = "";
+    let selectedGroupValue = "";
+
     // Toast element helper
     const toast = document.getElementById("toast");
     const toastMessage = document.getElementById("toast-message");
@@ -16,7 +19,107 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 4000);
     }
 
+    // -------------------------------------------------------------
+    // Authentication Logic
+    // -------------------------------------------------------------
+    const loginOverlay = document.getElementById("login-overlay");
+    const loginError = document.getElementById("login-error");
+    const loginErrorText = document.getElementById("login-error-text");
+    const userDisplayName = document.getElementById("user-display-name");
+
+    window.checkAuth = async function() {
+        try {
+            const res = await fetch("/api/auth/me");
+            if (res.ok) {
+                const data = await res.json();
+                userDisplayName.textContent = data.username;
+                loginOverlay.classList.remove("active");
+                
+                // Load page data depending on active tab
+                const activeTab = document.querySelector(".nav-item.active").getAttribute("data-tab");
+                if (activeTab === "dashboard") loadDashboardData();
+                else if (activeTab === "users") loadUsersData();
+                else if (activeTab === "sync") loadSyncSessions();
+                else if (activeTab === "settings") loadSettings();
+                
+                // Initialize filters once authenticated
+                loadFilters(selectedLicenseValue, selectedGroupValue);
+            } else {
+                loginOverlay.classList.add("active");
+            }
+        } catch (error) {
+            loginOverlay.classList.add("active");
+        }
+    };
+
+    window.handleLocalLogin = async function() {
+        const usernameInput = document.getElementById("login-username");
+        const passwordInput = document.getElementById("login-password");
+        
+        const payload = {
+            username: usernameInput.value,
+            password: passwordInput.value
+        };
+
+        try {
+            loginError.style.display = "none";
+            const res = await fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                showToast("Вход выполнен успешно!", "success");
+                usernameInput.value = "";
+                passwordInput.value = "";
+                checkAuth();
+            } else {
+                loginErrorText.textContent = data.detail || "Неверный логин или пароль";
+                loginError.style.display = "flex";
+            }
+        } catch (error) {
+            loginErrorText.textContent = "Ошибка сетевого соединения с сервером";
+            loginError.style.display = "flex";
+        }
+    };
+
+    window.handleMicrosoftLogin = async function() {
+        try {
+            loginError.style.display = "none";
+            const res = await fetch("/api/auth/microsoft");
+            const data = await res.json();
+            
+            if (res.ok && data.url) {
+                // Redirect user to Microsoft authorization page
+                window.location.href = data.url;
+            } else {
+                loginErrorText.textContent = data.detail || "Не удалось настроить вход M365 (проверьте параметры интеграции)";
+                loginError.style.display = "flex";
+            }
+        } catch (error) {
+            loginErrorText.textContent = "Ошибка запуска SSO: " + error.message;
+            loginError.style.display = "flex";
+        }
+    };
+
+    window.handleLogout = async function() {
+        try {
+            const res = await fetch("/api/auth/logout", { method: "POST" });
+            if (res.ok) {
+                showToast("Вы вышли из системы.", "info");
+                userDisplayName.textContent = "Cloud Management";
+                loginOverlay.classList.add("active");
+            }
+        } catch (error) {
+            showToast("Ошибка при выходе из системы", "error");
+        }
+    };
+
+    // -------------------------------------------------------------
     // Tab Navigation Logic
+    // -------------------------------------------------------------
     const navItems = document.querySelectorAll(".nav-item");
     const tabContents = document.querySelectorAll(".tab-content");
     const pageTitle = document.getElementById("page-title");
@@ -46,16 +149,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 pageSubtitle.textContent = tabHeaders[targetTab].subtitle;
             }
 
-            // Load data specific to tabs
-            if (targetTab === "dashboard") {
-                loadDashboardData();
-            } else if (targetTab === "users") {
-                currentPage = 1;
-                loadUsersData();
-            } else if (targetTab === "sync") {
-                loadSyncSessions();
-            } else if (targetTab === "settings") {
-                loadSettings();
+            // Load data specific to tabs (only if authenticated)
+            if (!loginOverlay.classList.contains("active")) {
+                if (targetTab === "dashboard") {
+                    loadDashboardData();
+                } else if (targetTab === "users") {
+                    currentPage = 1;
+                    loadUsersData();
+                } else if (targetTab === "sync") {
+                    loadSyncSessions();
+                } else if (targetTab === "settings") {
+                    loadSettings();
+                }
             }
         });
     });
@@ -90,6 +195,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // -------------------------------------------------------------
+    // Custom Dropdown (Select) UI Handler
+    // -------------------------------------------------------------
+    document.querySelectorAll(".custom-select .select-trigger").forEach(trigger => {
+        trigger.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const select = trigger.parentElement;
+            const isOpen = select.classList.contains("open");
+            
+            // Close all custom selects first
+            document.querySelectorAll(".custom-select").forEach(s => s.classList.remove("open"));
+            
+            if (!isOpen) {
+                select.classList.add("open");
+            }
+        });
+    });
+
+    document.addEventListener("click", () => {
+        document.querySelectorAll(".custom-select").forEach(s => s.classList.remove("open"));
+    });
+
+    // -------------------------------------------------------------
     // Tab Loaders and Logic
     // -------------------------------------------------------------
     
@@ -97,7 +224,10 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadDashboardData() {
         try {
             const res = await fetch("/api/dashboard");
-            if (!res.ok) throw new Error("Не удалось загрузить данные дашборда.");
+            if (!res.ok) {
+                if (res.status === 401) { checkAuth(); return; }
+                throw new Error("Не удалось загрузить данные дашборда.");
+            }
             const data = await res.json();
 
             // Set simple stats
@@ -178,8 +308,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 2. Users Tab
     const userSearch = document.getElementById("user-search");
-    const filterLicense = document.getElementById("filter-license");
-    const filterGroup = document.getElementById("filter-group");
     const usersTableBody = document.getElementById("users-table-body");
     const prevPageBtn = document.getElementById("prev-page");
     const nextPageBtn = document.getElementById("next-page");
@@ -189,30 +317,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function loadFilters(selectedLicense = "", selectedGroup = "") {
         try {
-            // Load filters by getting all users from dashboard or making request
-            // In a larger system, we'd have specialized filter endpoints, 
-            // but we can query dashboard stats for licenses.
             const res = await fetch("/api/dashboard");
             if (!res.ok) return;
             const data = await res.json();
             
-            // Populate licenses dropdown
-            filterLicense.innerHTML = '<option value="">Все лицензии</option>';
+            // Populate licenses options list
+            const licenseOptions = document.getElementById("select-license-options");
+            licenseOptions.innerHTML = '<div class="option" data-value="">Все лицензии</div>';
             if (data.active_licenses) {
                 Object.keys(data.active_licenses).sort().forEach(lic => {
-                    const opt = document.createElement("option");
-                    opt.value = lic;
+                    const opt = document.createElement("div");
+                    opt.className = "option";
+                    opt.dataset.value = lic;
                     opt.textContent = lic;
-                    if (lic === selectedLicense) opt.selected = true;
-                    filterLicense.appendChild(opt);
+                    if (lic === selectedLicense) opt.classList.add("active");
+                    licenseOptions.appendChild(opt);
                 });
             }
 
-            // Populate groups (we can fetch groups from config or list of users dynamically)
-            // For now, let's keep it simple: load from users list or query it.
-            // Let's make an API call to get all syncs and fetch group names.
-            // Since groups are saved, we can query users with limit 1000 to extract unique groups.
+            // Populate groups options list
             const usersRes = await fetch("/api/users?limit=1000");
+            const groupOptions = document.getElementById("select-group-options");
+            groupOptions.innerHTML = '<div class="option" data-value="">Все группы</div>';
             if (usersRes.ok) {
                 const usersData = await usersRes.json();
                 const uniqueGroups = new Set();
@@ -224,24 +350,62 @@ document.addEventListener("DOMContentLoaded", () => {
                         });
                     }
                 });
-                filterGroup.innerHTML = '<option value="">Все группы</option>';
                 Array.from(uniqueGroups).sort().forEach(grp => {
-                    const opt = document.createElement("option");
-                    opt.value = grp;
+                    const opt = document.createElement("div");
+                    opt.className = "option";
+                    opt.dataset.value = grp;
                     opt.textContent = grp;
-                    if (grp === selectedGroup) opt.selected = true;
-                    filterGroup.appendChild(opt);
+                    if (grp === selectedGroup) opt.classList.add("active");
+                    groupOptions.appendChild(opt);
                 });
             }
+
+            // Bind click handlers to newly created option elements
+            registerOptionClickListeners("select-license", (val, text) => {
+                selectedLicenseValue = val;
+                currentPage = 1;
+                loadUsersData();
+            });
+            registerOptionClickListeners("select-group", (val, text) => {
+                selectedGroupValue = val;
+                currentPage = 1;
+                loadUsersData();
+            });
+
         } catch (e) {
             console.error("Error loading filters", e);
         }
     }
 
+    function registerOptionClickListeners(selectContainerId, onSelectCallback) {
+        const container = document.getElementById(selectContainerId);
+        const triggerSpan = container.querySelector(".select-trigger span");
+        const options = container.querySelectorAll(".select-options .option");
+        
+        options.forEach(opt => {
+            const newOpt = opt.cloneNode(true);
+            opt.parentNode.replaceChild(newOpt, opt);
+            
+            newOpt.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const val = newOpt.dataset.value;
+                const text = newOpt.textContent;
+                
+                triggerSpan.textContent = text;
+                
+                container.querySelectorAll(".select-options .option").forEach(o => o.classList.remove("active"));
+                newOpt.classList.add("active");
+                container.classList.remove("open");
+                
+                onSelectCallback(val, text);
+            });
+        });
+    }
+
     async function loadUsersData() {
         const search = userSearch.value;
-        const lic = filterLicense.value;
-        const grp = filterGroup.value;
+        const lic = selectedLicenseValue;
+        const grp = selectedGroupValue;
 
         // Build query params
         let url = `/api/users?page=${currentPage}&limit=${limit}`;
@@ -249,17 +413,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (lic) url += `&license=${encodeURIComponent(lic)}`;
         if (grp) url += `&group=${encodeURIComponent(grp)}`;
 
-        // Dynamic update of Excel Export link
-        let exportUrl = `/api/export`;
-        // Even if we export all, we can append filters if needed in the future,
-        // for now let's just let it download the latest full snapshot.
-        exportExcelBtn.href = exportUrl;
+        exportExcelBtn.href = `/api/export`;
 
         try {
             usersTableBody.innerHTML = '<tr><td colspan="6" class="text-center">Загрузка данных...</td></tr>';
             
             const res = await fetch(url);
-            if (!res.ok) throw new Error("Не удалось загрузить список пользователей.");
+            if (!res.ok) {
+                if (res.status === 401) { checkAuth(); return; }
+                throw new Error("Не удалось загрузить список пользователей.");
+            }
             const data = await res.json();
 
             usersTableBody.innerHTML = "";
@@ -318,10 +481,9 @@ document.addEventListener("DOMContentLoaded", () => {
         searchTimeout = setTimeout(() => {
             currentPage = 1;
             loadUsersData();
-        }, 4000); // 400ms debounce
+        }, 400); // 400ms debounce
     });
     
-    // Immediate load on pressing enter in search
     userSearch.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             clearTimeout(searchTimeout);
@@ -330,20 +492,22 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    filterLicense.addEventListener("change", () => {
-        currentPage = 1;
-        loadUsersData();
-    });
-
-    filterGroup.addEventListener("change", () => {
-        currentPage = 1;
-        loadUsersData();
-    });
-
     resetFiltersBtn.addEventListener("click", () => {
         userSearch.value = "";
-        filterLicense.value = "";
-        filterGroup.value = "";
+        selectedLicenseValue = "";
+        selectedGroupValue = "";
+        
+        document.getElementById("select-license-text").textContent = "Все лицензии";
+        document.getElementById("select-group-text").textContent = "Все группы";
+        
+        // Reset active flags inside dropdown lists
+        document.querySelectorAll(".custom-select").forEach(select => {
+            select.querySelectorAll(".select-options .option").forEach((opt, idx) => {
+                if (idx === 0) opt.classList.add("active");
+                else opt.classList.remove("active");
+            });
+        });
+
         currentPage = 1;
         loadUsersData();
     });
@@ -356,7 +520,10 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadSyncSessions() {
         try {
             const res = await fetch("/api/syncs");
-            if (!res.ok) throw new Error("Не удалось загрузить сессии синхронизации.");
+            if (!res.ok) {
+                if (res.status === 401) { checkAuth(); return; }
+                throw new Error("Не удалось загрузить сессии синхронизации.");
+            }
             const data = await res.json();
 
             syncsTableBody.innerHTML = "";
@@ -418,8 +585,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         clearInterval(syncIntervalId);
                         triggerSyncBtn.disabled = false;
                         quickSyncBtn.disabled = false;
+                        
                         showToast(latest.status === "success" ? "Синхронизация завершена успешно!" : "Синхронизация завершилась с ошибкой.", latest.status === "success" ? "success" : "error");
                         
+                        // Dynamically update the filter lists after sync finishes
+                        await loadFilters(selectedLicenseValue, selectedGroupValue);
+
                         // Reload current tab content
                         if (activeTab === "dashboard") loadDashboardData();
                         if (activeTab === "users") loadUsersData();
@@ -448,7 +619,10 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadSettings() {
         try {
             const res = await fetch("/api/config");
-            if (!res.ok) throw new Error("Не удалось загрузить конфигурацию.");
+            if (!res.ok) {
+                if (res.status === 401) { checkAuth(); return; }
+                throw new Error("Не удалось загрузить конфигурацию.");
+            }
             const data = await res.json();
 
             if (data) {
@@ -522,6 +696,5 @@ document.addEventListener("DOMContentLoaded", () => {
     // -------------------------------------------------------------
     // Initial App Load
     // -------------------------------------------------------------
-    loadDashboardData();
-    loadFilters();
+    checkAuth();
 });
