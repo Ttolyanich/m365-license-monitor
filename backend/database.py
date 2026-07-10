@@ -85,6 +85,7 @@ class SyncHistory(Base):
     status = Column(String)  # "success", "failed"
     message = Column(Text, default="")
     users_count = Column(Integer, default=0)
+    progress = Column(Integer, default=0)
 
 class UserSnapshot(Base):
     __tablename__ = "user_snapshots"
@@ -128,9 +129,30 @@ def init_db():
             if "last_email_sent" not in column_names:
                 conn.execute(text("ALTER TABLE configs ADD COLUMN last_email_sent DATETIME;"))
                 print("Migration: Added last_email_sent column to configs table.")
+                
+            # Проверяем колонки в sync_history
+            result_sh = conn.execute(text("PRAGMA table_info(sync_history);"))
+            sh_cols = [row[1] for row in result_sh.fetchall()]
+            if "progress" not in sh_cols:
+                conn.execute(text("ALTER TABLE sync_history ADD COLUMN progress INTEGER DEFAULT 0;"))
+                print("Migration: Added progress column to sync_history table.")
     except Exception as migration_error:
         print(f"Migration error: {migration_error}")
     
+    # Сброс зависших сессий синхронизации при запуске сервера
+    try:
+        session_cleanup = SessionLocal()
+        interrupted = session_cleanup.query(SyncHistory).filter(SyncHistory.status == "running").all()
+        for s in interrupted:
+            s.status = "error"
+            s.message = "Синхронизация прервана (сервер был перезапущен)."
+            s.progress = 0
+        session_cleanup.commit()
+        session_cleanup.close()
+        print("Startup cleanup: Resetted interrupted sync history records.")
+    except Exception as cleanup_err:
+        print(f"Startup cleanup error: {cleanup_err}")
+
     session = SessionLocal()
     try:
         # Create default config if not exists
