@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Экспорт пользователей Microsoft 365, их лицензий и групп в CSV-отчет с отправкой по почте.
 .DESCRIPTION
@@ -86,7 +86,8 @@ Import-Module Microsoft.Graph.Identity.DirectoryManagement
 # 2. Подключение к Microsoft Graph
 Write-Host "Подключение к Microsoft Graph..." -ForegroundColor Cyan
 $SecSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
-$GraphConnection = Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -ClientSecret $SecSecret -NoWelcome
+$Credential = New-Object System.Management.Automation.PSCredential($ClientId, $SecSecret)
+$GraphConnection = Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -ClientSecretCredential $Credential -NoWelcome
 
 if (-not $GraphConnection) {
     throw "Не удалось подключиться к Microsoft Graph."
