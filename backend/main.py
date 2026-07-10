@@ -1,7 +1,11 @@
 import os
 import io
+import sys
 import asyncio
 from datetime import datetime
+
+# Добавляем текущую директорию в sys.path для корректного импорта модулей
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
