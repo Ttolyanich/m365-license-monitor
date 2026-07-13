@@ -786,6 +786,7 @@ def get_users(
     search: Optional[str] = None,
     group: Optional[str] = None,
     license: Optional[str] = None,
+    show_deactivated: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -793,6 +794,8 @@ def get_users(
     if not last_success_sync:
         return {"users": [], "total": 0, "page": page, "limit": limit}
     query = db.query(UserSnapshot).filter(UserSnapshot.sync_id == last_success_sync.id)
+    if not show_deactivated:
+        query = query.filter(UserSnapshot.account_enabled == True)
     if search:
         query = query.filter(
             (UserSnapshot.user_principal_name.like(f"%{search}%")) |
@@ -900,6 +903,7 @@ def get_jira_users(
     search: Optional[str] = None,
     group: Optional[str] = None,
     application: Optional[str] = None,
+    show_deactivated: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -907,6 +911,8 @@ def get_jira_users(
     if not last_success_sync:
         return {"users": [], "total": 0, "page": page, "limit": limit}
     query = db.query(JiraUserSnapshot).filter(JiraUserSnapshot.sync_id == last_success_sync.id)
+    if not show_deactivated:
+        query = query.filter(JiraUserSnapshot.active == True)
     if search:
         query = query.filter(
             (JiraUserSnapshot.email.like(f"%{search}%")) |

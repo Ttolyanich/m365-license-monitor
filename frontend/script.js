@@ -451,7 +451,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const grp = selectedGroupValue;
 
         // Build query params
-        let url = `/api/users?page=${currentPage}&limit=${limit}`;
+        const showDeactivated = document.getElementById("show-deactivated-m365") ? document.getElementById("show-deactivated-m365").checked : false;
+        let url = `/api/users?page=${currentPage}&limit=${limit}&show_deactivated=${showDeactivated}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
         if (lic) url += `&license=${encodeURIComponent(lic)}`;
         if (grp) url += `&group=${encodeURIComponent(grp)}`;
@@ -535,8 +536,17 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    const showDeactivatedM365 = document.getElementById("show-deactivated-m365");
+    if (showDeactivatedM365) {
+        showDeactivatedM365.addEventListener("change", () => {
+            currentPage = 1;
+            loadUsersData();
+        });
+    }
+
     resetFiltersBtn.addEventListener("click", () => {
         userSearch.value = "";
+        if (showDeactivatedM365) showDeactivatedM365.checked = false;
         selectedLicenseValue = "";
         selectedGroupValue = "";
         
@@ -625,7 +635,8 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadJiraUsers() {
         try {
             const search = jiraUserSearch ? jiraUserSearch.value : "";
-            const url = `/api/jira/users?page=${currentJiraPage}&limit=10&search=${encodeURIComponent(search)}&group=${encodeURIComponent(selectedJiraGroupValue)}&application=${encodeURIComponent(selectedJiraAppValue)}`;
+            const showDeactivated = document.getElementById("show-deactivated-jira") ? document.getElementById("show-deactivated-jira").checked : false;
+            const url = `/api/jira/users?page=${currentJiraPage}&limit=10&search=${encodeURIComponent(search)}&group=${encodeURIComponent(selectedJiraGroupValue)}&application=${encodeURIComponent(selectedJiraAppValue)}&show_deactivated=${showDeactivated}`;
             
             const res = await fetch(url);
             if (!res.ok) {
@@ -783,9 +794,18 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const showDeactivatedJira = document.getElementById("show-deactivated-jira");
+    if (showDeactivatedJira) {
+        showDeactivatedJira.addEventListener("change", () => {
+            currentJiraPage = 1;
+            loadJiraUsers();
+        });
+    }
+
     if (jiraResetFiltersBtn) {
         jiraResetFiltersBtn.addEventListener("click", () => {
             if (jiraUserSearch) jiraUserSearch.value = "";
+            if (showDeactivatedJira) showDeactivatedJira.checked = false;
             selectedJiraAppValue = "";
             selectedJiraGroupValue = "";
             
