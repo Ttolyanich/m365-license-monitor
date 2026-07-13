@@ -34,7 +34,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 
-from database import init_db, get_db, Config, SyncHistory, UserSnapshot, DiffLog, User, SessionToken, hash_password, verify_password
+from database import init_db, get_db, Config, SyncHistory, UserSnapshot, DiffLog, User, SessionToken, hash_password, verify_password, JiraUserSnapshot, JiraDiffLog
+from jira_client import JiraClient
+import json
 
 
 
@@ -511,6 +513,152 @@ async def send_sync_report_email(config: Config, sync_run: SyncHistory, current_
 
 
 
+async def run_jira_sync_logic(db_session: Session, config: Config, sync_run: SyncHistory):
+    client = JiraClient(config.jira_url, config.jira_username, config.jira_api_token)
+    
+    sync_run.progress = 55
+    sync_run.message = "Jira: Получение списка пользователей..."
+    db_session.commit()
+    users_data = await client.fetch_users()
+    
+    sync_run.progress = 65
+    sync_run.message = "Jira: Получение групп доступа..."
+    db_session.commit()
+    
+    async def get_groups(u):
+        u["_groups"] = await client.fetch_user_groups(u["accountId"])
+    await asyncio.gather(*(get_groups(u) for u in users_data))
+    
+    sync_run.progress = 75
+    sync_run.message = "Jira: Получение ролей проектов..."
+    db_session.commit()
+    roles_data = await client.fetch_projects_and_roles()
+    user_roles_map = roles_data.get("users", {})
+    group_roles_map = roles_data.get("groups", {})
+    
+    sync_run.progress = 90 if not config.jira_sync_enabled else 45
+    sync_run.message = "Jira: Анализ изменений..."
+    db_session.commit()
+    
+    prev_sync = db_session.query(SyncHistory).filter(SyncHistory.status == "success").order_by(SyncHistory.timestamp.desc()).first()
+    prev_snapshots = {}
+    if prev_sync:
+        prev_snapshots = {s.account_id: s for s in db_session.query(JiraUserSnapshot).filter(JiraUserSnapshot.sync_id == prev_sync.id).all()}
+        
+    current_snapshots = []
+    diffs = []
+    
+    for u in users_data:
+        acc_id = u["accountId"]
+        email = u.get("emailAddress", "").lower() if u.get("emailAddress") else ""
+        disp_name = u.get("displayName", "")
+        active = u.get("active", True)
+        groups_list = u.get("_groups", [])
+        
+        apps = []
+        for g in groups_list:
+            g_lower = g.lower()
+            if "jira-software" in g_lower:
+                apps.append("Jira Software")
+            elif "confluence" in g_lower:
+                apps.append("Confluence")
+            elif "jira-servicedesk" in g_lower or "jira-service-management" in g_lower:
+                apps.append("Jira Service Management")
+            elif "bitbucket" in g_lower:
+                apps.append("Bitbucket")
+        apps = list(set(apps))
+        
+        user_roles = user_roles_map.get(acc_id, {})
+        for g in groups_list:
+            g_roles = group_roles_map.get(g, {})
+            for proj, roles in g_roles.items():
+                if proj not in user_roles:
+                    user_roles[proj] = []
+                for r in roles:
+                    if r not in user_roles[proj]:
+                        user_roles[proj].append(r)
+                        
+        groups_str = ",".join(groups_list)
+        apps_str = ",".join(apps)
+        roles_json = json.dumps(user_roles)
+        
+        snapshot = JiraUserSnapshot(
+            sync_id=sync_run.id,
+            account_id=acc_id,
+            email=email,
+            display_name=disp_name,
+            active=active,
+            groups=groups_str,
+            applications=apps_str,
+            project_roles=roles_json
+        )
+        current_snapshots.append(snapshot)
+        
+        if acc_id in prev_snapshots:
+            prev = prev_snapshots[acc_id]
+            details = []
+            if prev.active != active:
+                status_str = "активирован" if active else "деактивирован"
+                details.append(f"Статус аккаунта изменен: {status_str}")
+                
+            prev_groups = set(prev.groups.split(",")) if prev.groups else set()
+            curr_groups = set(groups_list)
+            added_g = curr_groups - prev_groups
+            removed_g = prev_groups - curr_groups
+            if added_g:
+                details.append(f"Добавлен в группы: {', '.join(added_g)}")
+            if removed_g:
+                details.append(f"Удален из групп: {', '.join(removed_g)}")
+                
+            prev_apps = set(prev.applications.split(",")) if prev.applications else set()
+            curr_apps = set(apps)
+            added_a = curr_apps - prev_apps
+            removed_a = prev_apps - curr_apps
+            if added_a:
+                details.append(f"Добавлен доступ к продуктам: {', '.join(added_a)}")
+            if removed_a:
+                details.append(f"Удален доступ к продуктам: {', '.join(removed_a)}")
+                
+            prev_roles = json.loads(prev.project_roles) if prev.project_roles else {}
+            if prev_roles != user_roles:
+                details.append("Изменены проектные роли")
+                
+            if details:
+                diffs.append(JiraDiffLog(
+                    sync_id=sync_run.id,
+                    email=email,
+                    display_name=disp_name,
+                    change_type="modified",
+                    details="; ".join(details)
+                ))
+        else:
+            diffs.append(JiraDiffLog(
+                sync_id=sync_run.id,
+                email=email,
+                display_name=disp_name,
+                change_type="added",
+                details="Добавлен новый аккаунт Jira."
+            ))
+            
+    for acc_id, prev in prev_snapshots.items():
+        if not any(u["accountId"] == acc_id for u in users_data):
+            diffs.append(JiraDiffLog(
+                sync_id=sync_run.id,
+                email=prev.email,
+                display_name=prev.display_name,
+                change_type="removed",
+                details="Учетная запись Jira удалена."
+            ))
+            
+    sync_run.progress = 92
+    sync_run.message = "Jira: Сохранение результатов..."
+    db_session.commit()
+    
+    db_session.add_all(current_snapshots)
+    db_session.add_all(diffs)
+    db_session.commit()
+    return current_snapshots, diffs
+
 async def run_sync_logic(db_session: Session, config: Config):
 
     async with sync_lock:
@@ -537,7 +685,7 @@ async def run_sync_logic(db_session: Session, config: Config):
 
             # 2. Get SKUs
 
-            sync_run.progress = 25
+            sync_run.progress = 25 if not config.jira_sync_enabled else 12
             sync_run.message = "Получение списка лицензий (SKU)..."
             db_session.commit()
             skus_data = await client.get_all_pages("https://graph.microsoft.com/v1.0/subscribedSkus")
@@ -548,7 +696,7 @@ async def run_sync_logic(db_session: Session, config: Config):
 
             # 3. Get Groups and member lists
 
-            sync_run.progress = 40
+            sync_run.progress = 40 if not config.jira_sync_enabled else 20
             sync_run.message = "Получение списка групп..."
             db_session.commit()
             groups_data = await client.get_all_pages("https://graph.microsoft.com/v1.0/groups?$select=id,displayName")
@@ -589,7 +737,7 @@ async def run_sync_logic(db_session: Session, config: Config):
 
             # 4. Get Users
 
-            sync_run.progress = 80
+            sync_run.progress = 80 if not config.jira_sync_enabled else 40
             sync_run.message = "Получение учетных записей пользователей..."
             db_session.commit()
             users_data = await client.get_all_pages("https://graph.microsoft.com/v1.0/users?$select=id,userPrincipalName,displayName,mail,accountEnabled,assignedLicenses")

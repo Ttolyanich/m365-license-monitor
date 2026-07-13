@@ -88,6 +88,10 @@
                     <i class="fa-solid fa-rotate"></i>
                     <span>Синхронизация</span>
                 </a>
+                <a href="#" class="nav-item" data-tab="jira" id="nav-jira">
+                    <i class="fa-brands fa-jira text-accent"></i>
+                    <span>Jira</span>
+                </a>
                 <a href="#" class="nav-item" data-tab="settings" id="nav-settings">
                     <i class="fa-solid fa-sliders"></i>
                     <span>Настройки</span>
@@ -292,6 +296,133 @@
                 </div>
             </section>
 
+            <!-- TAB 3.5: JIRA -->
+            <section id="tab-jira" class="tab-content">
+                <!-- Jira Dashboard Stats -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+                        <div class="stat-info">
+                            <h3 id="jira-stat-total-users">0</h3>
+                            <p>Пользователей Jira</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green"><i class="fa-solid fa-user-check"></i></div>
+                        <div class="stat-info">
+                            <h3 id="jira-stat-active-users">0</h3>
+                            <p>Активных аккаунтов</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon blue"><i class="fa-brands fa-jira text-accent"></i></div>
+                        <div class="stat-info">
+                            <h3 id="jira-stat-jira-software">0</h3>
+                            <p>Jira Software</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon purple"><i class="fa-brands fa-confluence"></i></div>
+                        <div class="stat-info">
+                            <h3 id="jira-stat-confluence">0</h3>
+                            <p>Confluence</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon orange"><i class="fa-brands fa-bitbucket"></i></div>
+                        <div class="stat-info">
+                            <h3 id="jira-stat-bitbucket">0</h3>
+                            <p>Bitbucket</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Jira Panel -->
+                <div class="users-split-container" style="display: flex; gap: 20px; margin-bottom: 25px;">
+                    <!-- Left Column: Users list -->
+                    <div class="panel" style="flex: 2;">
+                        <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h2>Пользователи Jira Cloud</h2>
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="jira-user-search" placeholder="Поиск по имени или email...">
+                            </div>
+                        </div>
+
+                        <!-- Dropdowns Filter Bar -->
+                        <div class="filters-bar" style="display: flex; gap: 15px; margin-bottom: 20px;">
+                            <!-- Product Select -->
+                            <div class="custom-select" id="select-jira-app">
+                                <div class="select-trigger" id="select-jira-app-text">
+                                    <span>Все продукты</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="select-options" id="select-jira-app-options">
+                                    <div class="option active" data-value="">Все продукты</div>
+                                    <div class="option" data-value="Jira Software">Jira Software</div>
+                                    <div class="option" data-value="Confluence">Confluence</div>
+                                    <div class="option" data-value="Jira Service Management">Jira Service Management</div>
+                                    <div class="option" data-value="Bitbucket">Bitbucket</div>
+                                </div>
+                            </div>
+
+                            <!-- Group Select -->
+                            <div class="custom-select" id="select-jira-group">
+                                <div class="select-trigger" id="select-jira-group-text">
+                                    <span>Все группы</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="select-options" id="select-jira-group-options">
+                                    <div class="option active" data-value="">Все группы</div>
+                                </div>
+                            </div>
+                            
+                            <button id="jira-reset-filters-btn" class="btn btn-secondary">
+                                <i class="fa-solid fa-filter-circle-xmark"></i> Сбросить
+                            </button>
+                        </div>
+
+                        <!-- Users Table -->
+                        <div class="table-container">
+                            <table class="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>Пользователь</th>
+                                        <th>Статус</th>
+                                        <th>Доступ к продуктам</th>
+                                        <th>Группы Atlassian</th>
+                                        <th>Роли в проектах</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jira-users-table-body">
+                                    <tr>
+                                        <td colspan="5" class="text-center">Загрузка данных пользователей...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div class="pagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+                            <span id="jira-page-info" class="text-secondary">Страница 1 из 1</span>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="jira-prev-page" class="btn btn-secondary btn-small"><i class="fa-solid fa-chevron-left"></i> Назад</button>
+                                <button id="jira-next-page" class="btn btn-secondary btn-small">Вперед <i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Recent Changes Log -->
+                    <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+                        <h2>История изменений Jira</h2>
+                        <p class="text-secondary mb-20" style="font-size: 13px;">Лог изменений прав доступа и статусов учетных записей.</p>
+                        <div class="timeline" id="jira-timeline" style="flex: 1; max-height: 520px; overflow-y: auto; padding-right: 5px;">
+                            <div class="text-center text-secondary" style="padding: 20px;">Загрузка истории изменений...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- TAB 4: SETTINGS -->
             <section id="tab-settings" class="tab-content">
                 <form id="settings-form" class="settings-form">
@@ -314,6 +445,42 @@
                             <div class="form-group">
                                 <label for="client_secret">Client Secret (Секрет приложения)</label>
                                 <input type="password" id="client_secret" name="client_secret" required placeholder="••••••••••••••••••••••••">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Jira Auth -->
+                    <div class="panel">
+                        <h2><i class="fa-brands fa-jira text-accent"></i> Интеграция с Jira Cloud</h2>
+                        <p class="text-secondary mb-20">Сбор данных о пользователях Atlassian Cloud. Для работы требуется API Token администратора.</p>
+                        
+                        <div class="toggle-container mb-20">
+                            <label class="switch">
+                                <input type="checkbox" id="jira_sync_enabled" name="jira_sync_enabled">
+                                <span class="slider"></span>
+                            </label>
+                            <div class="toggle-text">
+                                <label for="jira_sync_enabled">Включить интеграцию с Jira Cloud</label>
+                                <p class="text-secondary">При активации фоновая и ручная синхронизации будут запрашивать данные из Jira.</p>
+                            </div>
+                        </div>
+
+                        <div id="jira-settings-fields">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="jira_url">URL-адрес инстанса Jira</label>
+                                    <input type="url" id="jira_url" name="jira_url" placeholder="Пример: https://your-company.atlassian.net">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="jira_username">Email администратора Jira</label>
+                                    <input type="email" id="jira_username" name="jira_username" placeholder="Пример: admin@company.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="jira_api_token">API Token Jira</label>
+                                    <input type="password" id="jira_api_token" name="jira_api_token" placeholder="Ваш API-токен Atlassian">
+                                </div>
                             </div>
                         </div>
                     </div>

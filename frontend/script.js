@@ -40,11 +40,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 const activeTab = document.querySelector(".nav-item.active").getAttribute("data-tab");
                 if (activeTab === "dashboard") loadDashboardData();
                 else if (activeTab === "users") loadUsersData();
+                else if (activeTab === "jira") { loadJiraData(); loadJiraUsers(); }
                 else if (activeTab === "sync") loadSyncSessions();
                 else if (activeTab === "settings") loadSettings();
                 
                 // Initialize filters once authenticated
                 loadFilters(selectedLicenseValue, selectedGroupValue);
+                loadJiraFilters();
             } else {
                 loginOverlay.classList.add("active");
             }
@@ -162,6 +164,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const pageSubtitle = document.getElementById("page-subtitle");
 
     const tabHeaders = {
+        jira: { title: "Jira Cloud", subtitle: "Аудит пользователей и доступа Atlassian Cloud" },
         dashboard: { title: "Сводная информация", subtitle: "Статистика и отслеживание изменений лицензий Microsoft 365" },
         users: { title: "Список сотрудников", subtitle: "Таблица пользователей, их назначенных лицензий и групп" },
         sync: { title: "Синхронизация данных", subtitle: "Управление фоновым получением данных и историей сессий" },
@@ -192,6 +195,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else if (targetTab === "users") {
                     currentPage = 1;
                     loadUsersData();
+                } else if (targetTab === "jira") {
+                    currentJiraPage = 1;
+                    loadJiraData();
+                    loadJiraUsers();
                 } else if (targetTab === "sync") {
                     loadSyncSessions();
                 } else if (targetTab === "settings") {
@@ -548,6 +555,270 @@ document.addEventListener("DOMContentLoaded", () => {
         loadUsersData();
     });
 
+    // -------------------------------------------------------------
+    // 2.5 Jira Tab Logic
+    // -------------------------------------------------------------
+    let currentJiraPage = 1;
+    let selectedJiraAppValue = "";
+    let selectedJiraGroupValue = "";
+    let jiraSearchTimeout = null;
+
+    const jiraUserSearch = document.getElementById("jira-user-search");
+    const jiraUsersTableBody = document.getElementById("jira-users-table-body");
+    const jiraPrevPage = document.getElementById("jira-prev-page");
+    const jiraNextPage = document.getElementById("jira-next-page");
+    const jiraPageInfo = document.getElementById("jira-page-info");
+    const jiraResetFiltersBtn = document.getElementById("jira-reset-filters-btn");
+    
+    // Jira Settings toggler elements
+    const jiraSyncCheckbox = document.getElementById("jira_sync_enabled");
+    const jiraSettingsFields = document.getElementById("jira-settings-fields");
+
+    if (jiraSyncCheckbox && jiraSettingsFields) {
+        jiraSyncCheckbox.addEventListener("change", () => {
+            jiraSettingsFields.style.display = jiraSyncCheckbox.checked ? "block" : "none";
+        });
+    }
+
+    async function loadJiraData() {
+        try {
+            const res = await fetch("/api/jira/dashboard");
+            if (!res.ok) {
+                if (res.status === 401) { checkAuth(); return; }
+                throw new Error("Не удалось загрузить сводку Jira.");
+            }
+            const data = await res.json();
+            
+            document.getElementById("jira-stat-total-users").textContent = data.total_users;
+            document.getElementById("jira-stat-active-users").textContent = data.active_users;
+            document.getElementById("jira-stat-jira-software").textContent = data.jira_software;
+            document.getElementById("jira-stat-confluence").textContent = data.confluence;
+            document.getElementById("jira-stat-bitbucket").textContent = data.bitbucket;
+            
+            // Render Jira Timeline diffs
+            const timelineEl = document.getElementById("jira-timeline");
+            timelineEl.innerHTML = "";
+            if (data.recent_diffs && data.recent_diffs.length > 0) {
+                data.recent_diffs.forEach(d => {
+                    const item = document.createElement("div");
+                    item.className = "timeline-item";
+                    
+                    const date = new Date(d.timestamp);
+                    const dateStr = date.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+                    
+                    item.innerHTML = `
+                        <div class="timeline-dot ${d.change_type}"></div>
+                        <div class="timeline-time">${dateStr}</div>
+                        <div class="timeline-user">${d.display_name} (${d.email})</div>
+                        <div class="timeline-desc">${d.details}</div>
+                    `;
+                    timelineEl.appendChild(item);
+                });
+            } else {
+                timelineEl.innerHTML = '<p class="empty-state">Изменений не зафиксировано.</p>';
+            }
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
+    async function loadJiraUsers() {
+        try {
+            const search = jiraUserSearch ? jiraUserSearch.value : "";
+            const url = `/api/jira/users?page=${currentJiraPage}&limit=10&search=${encodeURIComponent(search)}&group=${encodeURIComponent(selectedJiraGroupValue)}&application=${encodeURIComponent(selectedJiraAppValue)}`;
+            
+            const res = await fetch(url);
+            if (!res.ok) {
+                if (res.status === 401) { checkAuth(); return; }
+                throw new Error("Не удалось загрузить пользователей Jira.");
+            }
+            const data = await res.json();
+            
+            jiraUsersTableBody.innerHTML = "";
+            
+            if (data.users && data.users.length > 0) {
+                data.users.forEach(u => {
+                    const tr = document.createElement("tr");
+                    
+                    // Status badge
+                    const statusBadge = u.active 
+                        ? '<span class="status-badge active"><span class="status-dot green"></span>Активен</span>' 
+                        : '<span class="status-badge"><span class="status-dot red"></span>Деактивирован</span>';
+                        
+                    // Products pills
+                    let appsHtml = "";
+                    if (u.applications) {
+                       u.applications.split(",").forEach(app => {
+                           if (app.trim()) {
+                               const appClass = app.trim().toLowerCase().replace(/ /g, "-");
+                               appsHtml += `<span class="jira-app-badge ${appClass}">${app.trim()}</span>`;
+                           }
+                       });
+                    }
+                    if (!appsHtml) {
+                       appsHtml = '<span class="text-muted">—</span>';
+                    }
+                    
+                    // Groups pills
+                    let groupsHtml = "";
+                    if (u.groups) {
+                        u.groups.split(",").forEach(g => {
+                            if (g.trim()) {
+                                groupsHtml += `<span class="jira-group-badge">${g.trim()}</span>`;
+                            }
+                        });
+                    }
+                    if (!groupsHtml) {
+                        groupsHtml = '<span class="text-muted">—</span>';
+                    }
+                    
+                    // Project roles
+                    let rolesHtml = "";
+                    if (u.project_roles) {
+                        try {
+                            const rolesObj = JSON.parse(u.project_roles);
+                            const projects = Object.keys(rolesObj);
+                            if (projects.length > 0) {
+                                projects.forEach(p => {
+                                    const roles = rolesObj[p].join(", ");
+                                    rolesHtml += `<span class="jira-project-role-tag"><strong>${p}</strong>: <span>${roles}</span></span> `;
+                                });
+                            }
+                        } catch(e) {}
+                    }
+                    if (!rolesHtml) {
+                        rolesHtml = '<span class="text-muted">—</span>';
+                    }
+                    
+                    tr.innerHTML = `
+                        <td>
+                            <div style="font-weight: 500;">${u.display_name}</div>
+                            <div class="text-secondary" style="font-size: 12px;">${u.email}</div>
+                        </td>
+                        <td>${statusBadge}</td>
+                        <td>${appsHtml}</td>
+                        <td>${groupsHtml}</td>
+                        <td style="max-width: 320px; white-space: normal;">${rolesHtml}</td>
+                   `;
+                   jiraUsersTableBody.appendChild(tr);
+                });
+            } else {
+                jiraUsersTableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Пользователи не найдены.</td></tr>';
+            }
+            
+            // Pagination status
+            const totalPages = Math.ceil(data.total / data.limit) || 1;
+            jiraPageInfo.textContent = `Страница ${currentJiraPage} из ${totalPages} (всего ${data.total})`;
+            
+            jiraPrevPage.disabled = currentJiraPage <= 1;
+            jiraNextPage.disabled = currentJiraPage >= totalPages;
+            
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
+    async function loadJiraFilters() {
+        try {
+            const res = await fetch("/api/jira/users?limit=1000");
+            if (res.ok) {
+                const data = await res.json();
+                const groupsSet = new Set();
+                
+                data.users.forEach(u => {
+                    if (u.groups) {
+                        u.groups.split(",").forEach(g => {
+                            if (g.trim()) groupsSet.add(g.trim());
+                        });
+                    }
+                });
+                
+                const groupOptionsContainer = document.getElementById("select-jira-group-options");
+                if (groupOptionsContainer) {
+                    groupOptionsContainer.innerHTML = '<div class="option active" data-value="">Все группы</div>';
+                    
+                    Array.from(groupsSet).sort().forEach(g => {
+                        const opt = document.createElement("div");
+                        opt.className = "option";
+                        opt.setAttribute("data-value", g);
+                        opt.textContent = g;
+                        groupOptionsContainer.appendChild(opt);
+                    });
+                    
+                    registerOptionClickListeners("select-jira-group", (val, text) => {
+                        selectedJiraGroupValue = val;
+                        currentJiraPage = 1;
+                        loadJiraUsers();
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Failed to load Jira groups for filters", error);
+        }
+    }
+
+    if (jiraPrevPage) {
+        jiraPrevPage.addEventListener("click", () => {
+            if (currentJiraPage > 1) {
+                currentJiraPage--;
+                loadJiraUsers();
+            }
+        });
+    }
+    
+    if (jiraNextPage) {
+        jiraNextPage.addEventListener("click", () => {
+            currentJiraPage++;
+            loadJiraUsers();
+        });
+    }
+
+    if (jiraUserSearch) {
+        jiraUserSearch.addEventListener("input", () => {
+            clearTimeout(jiraSearchTimeout);
+            jiraSearchTimeout = setTimeout(() => {
+                currentJiraPage = 1;
+                loadJiraUsers();
+            }, 3000); // 300ms debounce
+        });
+    }
+
+    if (jiraResetFiltersBtn) {
+        jiraResetFiltersBtn.addEventListener("click", () => {
+            if (jiraUserSearch) jiraUserSearch.value = "";
+            selectedJiraAppValue = "";
+            selectedJiraGroupValue = "";
+            
+            // Reset Select UIs
+            resetSelectTriggerText("select-jira-app", "Все продукты");
+            resetSelectTriggerText("select-jira-group", "Все группы");
+            
+            currentJiraPage = 1;
+            loadJiraUsers();
+        });
+    }
+
+    registerOptionClickListeners("select-jira-app", (val, text) => {
+        selectedJiraAppValue = val;
+        currentJiraPage = 1;
+        loadJiraUsers();
+    });
+
+    function resetSelectTriggerText(containerId, defaultText) {
+        const container = document.getElementById(containerId);
+        if (container) {
+            const trigger = container.querySelector(".select-trigger span");
+            if (trigger) trigger.textContent = defaultText;
+            container.querySelectorAll(".option").forEach(o => {
+                if (o.getAttribute("data-value") === "") {
+                    o.classList.add("active");
+                } else {
+                    o.classList.remove("active");
+                }
+            });
+        }
+    }
+
     // 3. Sync Tab
     const syncsTableBody = document.getElementById("syncs-table-body");
     const triggerSyncBtn = document.getElementById("trigger-sync-btn");
@@ -767,6 +1038,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 autoSyncCheckbox.dispatchEvent(new Event("change"));
 
                 document.getElementById("sync_interval_hours").value = data.sync_interval_hours || 24;
+                
+                // Jira parameters
+                jiraSyncCheckbox.checked = data.jira_sync_enabled || false;
+                jiraSyncCheckbox.dispatchEvent(new Event("change"));
+                document.getElementById("jira_url").value = data.jira_url || "";
+                document.getElementById("jira_username").value = data.jira_username || "";
+                document.getElementById("jira_api_token").value = data.jira_api_token || "";
             }
         } catch (error) {
             showToast(error.message, "error");
@@ -791,7 +1069,13 @@ document.addEventListener("DOMContentLoaded", () => {
             smtp_user: document.getElementById("smtp_user").value,
             smtp_password: document.getElementById("smtp_password").value,
             auto_sync_enabled: autoSyncCheckbox.checked,
-            sync_interval_hours: parseInt(document.getElementById("sync_interval_hours").value, 10)
+            sync_interval_hours: parseInt(document.getElementById("sync_interval_hours").value, 10),
+            
+            // Jira parameters
+            jira_sync_enabled: jiraSyncCheckbox.checked,
+            jira_url: document.getElementById("jira_url").value,
+            jira_username: document.getElementById("jira_username").value,
+            jira_api_token: document.getElementById("jira_api_token").value
         };
 
         try {

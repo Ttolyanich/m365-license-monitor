@@ -76,6 +76,12 @@ class Config(Base):
     # Email reporting scheduler settings
     email_report_frequency = Column(String, default="sync") # "sync", "daily", "weekly", "monthly", "disabled"
     last_email_sent = Column(DateTime, nullable=True)
+    
+    # Jira Cloud Integration settings
+    jira_url = Column(String, nullable=True)
+    jira_username = Column(String, nullable=True)
+    jira_api_token = Column(String, nullable=True)
+    jira_sync_enabled = Column(Boolean, default=False)
 
 class SyncHistory(Base):
     __tablename__ = "sync_history"
@@ -111,6 +117,30 @@ class DiffLog(Base):
     change_type = Column(String)  # "added", "removed", "modified"
     details = Column(Text)        # Human readable description of changes
 
+class JiraUserSnapshot(Base):
+    __tablename__ = "jira_user_snapshots"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    sync_id = Column(Integer, ForeignKey("sync_history.id", ondelete="CASCADE"), index=True)
+    account_id = Column(String, index=True)
+    email = Column(String, index=True)
+    display_name = Column(String)
+    active = Column(Boolean, default=True)
+    groups = Column(Text)  # Comma-separated group names
+    applications = Column(Text)  # Comma-separated product access (Jira Software, Confluence, etc.)
+    project_roles = Column(Text)  # JSON-serialized dict of project keys and role names
+
+class JiraDiffLog(Base):
+    __tablename__ = "jira_diff_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    sync_id = Column(Integer, ForeignKey("sync_history.id", ondelete="CASCADE"), index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    email = Column(String, index=True)
+    display_name = Column(String)
+    change_type = Column(String)  # "added", "removed", "modified"
+    details = Column(Text)
+
 from sqlalchemy import text
 
 def init_db():
@@ -129,6 +159,22 @@ def init_db():
             if "last_email_sent" not in column_names:
                 conn.execute(text("ALTER TABLE configs ADD COLUMN last_email_sent DATETIME;"))
                 print("Migration: Added last_email_sent column to configs table.")
+                
+            if "jira_url" not in column_names:
+                conn.execute(text("ALTER TABLE configs ADD COLUMN jira_url TEXT;"))
+                print("Migration: Added jira_url column to configs table.")
+                
+            if "jira_username" not in column_names:
+                conn.execute(text("ALTER TABLE configs ADD COLUMN jira_username TEXT;"))
+                print("Migration: Added jira_username column to configs table.")
+                
+            if "jira_api_token" not in column_names:
+                conn.execute(text("ALTER TABLE configs ADD COLUMN jira_api_token TEXT;"))
+                print("Migration: Added jira_api_token column to configs table.")
+                
+            if "jira_sync_enabled" not in column_names:
+                conn.execute(text("ALTER TABLE configs ADD COLUMN jira_sync_enabled INTEGER DEFAULT 0;"))
+                print("Migration: Added jira_sync_enabled column to configs table.")
                 
             # Проверяем колонки в sync_history
             result_sh = conn.execute(text("PRAGMA table_info(sync_history);"))
