@@ -20,10 +20,18 @@ import json
 # Initialize database
 init_db()
 app = FastAPI(title="M365 License and User Monitor API")
-# Enable CORS for development
+# CORS: фронтенд раздается этим же приложением (same-origin), поэтому список
+# origins нужен только для отдельного дев-сервера фронтенда.
+# Ранее стояло allow_origins=["*"] вместе с allow_credentials=True —
+# это позволяло любому сайту делать запросы с сессионной кукой пользователя.
+cors_origins = [
+    o.strip() for o in os.environ.get(
+        "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    ).split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
